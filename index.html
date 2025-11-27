@@ -161,7 +161,7 @@
 
         @keyframes pulseTarget { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
 
-        /* Coleman Lines (Restored Style v4 - Solid Bars) */
+        /* Coleman Lines (Solid Bar Style) */
         .var-line {
             position: absolute;
             background-color: var(--text-color);
@@ -257,7 +257,7 @@
                 <div id="tableMsg" class="status-msg"></div>
             </div>
 
-            <!-- Skip Button Moved Here -->
+            <!-- Skip Button -->
             <div style="margin-top: 20px; border-top: 1px solid #444; padding-top: 15px;">
                  <button onclick="skipToSolver()" style="width:100%; background:transparent; border:1px dashed #666; color:#888; font-size:0.8rem;">⏩ Přeskočit vyplňování (Vyplnit za mě)</button>
             </div>
@@ -411,29 +411,29 @@
             for(let i=0; i<totalCells; i++) {
                 const val = state.taskIndices.includes(i) ? targetVal : otherVal;
                 state.tableValues[i] = val;
-                state.mapGrid[i] = val;
+                // state.mapGrid is left empty for user to practice
             }
             
-            // Set flags
+            // Set flags - Table correct, Map needs work
             state.isTableCorrect = true;
-            state.isMapCorrect = true;
+            state.isMapCorrect = false; 
             
-            // UI Updates
             renderTruthTable();
-            renderMap();
+            renderMap(); 
             
             document.getElementById('mapPanel').style.opacity = '1';
             document.getElementById('mapPanel').style.pointerEvents = 'auto';
             document.getElementById('btnCheckTable').disabled = true;
-            document.getElementById('btnCheckMap').disabled = true;
-            document.getElementById('solvePanel').style.opacity = '1';
-            document.getElementById('solvePanel').style.pointerEvents = 'auto';
+            document.getElementById('btnCheckMap').disabled = false;
             
-            const targetStr = state.solveMode === 'minterm' ? 'jedničky' : 'nuly';
-            document.getElementById('solveInst').innerText = `1. Označ ${targetStr}. 2. Vytvoř skupinu. 3. Urči proměnné.`;
+            document.getElementById('solvePanel').style.opacity = '0.5';
+            document.getElementById('solvePanel').style.pointerEvents = 'none';
             
-            // Hide messages
             hideMsgs();
+            const msg = document.getElementById('tableMsg');
+            msg.style.display = 'block';
+            msg.className = 'status-msg success-text';
+            msg.innerText = "Tabulka vyplněna automaticky. Nyní přepiš hodnoty do mapy.";
         }
 
         // --- STEP 1: TRUTH TABLE ---
@@ -543,7 +543,7 @@
                 c.classList.add('dimmed');
             });
 
-            // Initialize candidates: All cells are candidates
+            // Initialize candidates
             const candidates = new Set();
             const total = Math.pow(2, state.vars);
             for(let i=0; i<total; i++) candidates.add(i);
@@ -633,8 +633,6 @@
             state.animState = null;
             document.getElementById('animPanel').style.display = 'none';
             document.querySelectorAll('tr').forEach(tr => tr.classList.remove('active-row'));
-            
-            // Reset map visual completely
             renderMap();
         }
 
@@ -735,10 +733,10 @@
             const indices = Array.from(state.selectedIndices).sort((a,b)=>a-b);
             if (indices.length === 0) return;
             
-            if (!isPowerOf2(indices.length)) { showErr("Neplatná velikost."); return; }
-            if (!isValidShape(indices)) { showErr("Neplatný tvar."); return; }
+            if (!isPowerOf2(indices.length)) { showErr(`Neplatná velikost oblasti (${indices.length} buněk). Velikost musí být mocnina čísla 2 (např. 1, 2, 4, 8, 16).`); return; }
+            if (!isValidShape(indices)) { showErr("Špatný tvar... musí být obdélník nebo čtverec."); return; }
             if (state.groups.some(g => arraysEqual(g.indices, indices))) { showErr("Duplicitní skupina."); return; }
-            if (!isGroupMaximal(indices)) { showErr("Skupina není maximální."); return; }
+            if (!isGroupMaximal(indices)) { showErr("Skupina není maximální, lze ji zvětšit."); return; }
 
             const covered = new Set();
             state.groups.forEach(g => g.indices.forEach(i => covered.add(i)));
@@ -863,32 +861,59 @@
                 return;
             }
 
-            let err = null;
+            let allCorrect = true;
+            let feedback = [];
+            
             state.groups.forEach((g, idx) => {
-                if (err) return;
-                const logic = getLogic(g.indices); 
+                const logicStruct = getGroupLogic(g.indices);
+                const correctVars = logicStruct.involvedVars;
+                const correctValues = logicStruct.values;
+                
                 const user = g.vars;
-                
                 const userSelected = getVarNames().filter(v => user[v] !== 0);
-                const logicSelected = Object.keys(logic);
                 
-                if (!arraysEqual(userSelected.sort(), logicSelected.sort())) {
-                    err = `Skupina ${idx+1}: Špatně zvolené proměnné.`; return;
+                // Detailed Variable Check
+                // Note: arraysEqual requires sorted arrays for comparison if order doesn't matter
+                if (!arraysEqual(userSelected.sort(), [...correctVars].sort())) {
+                    allCorrect = false;
+                    let msg = `Skupina ${idx+1}: `;
+                    
+                    // What did user pick extra?
+                    const extra = userSelected.find(v => !correctVars.includes(v));
+                    if (extra) {
+                        msg += `Vybral jsi <b>${extra}</b>, ale v této skupině se hodnota ${extra} mění (najdeš 0 i 1). Musíš ji vynechat.`;
+                    } else {
+                        // What is missing?
+                        const missing = correctVars.find(v => !userSelected.includes(v));
+                        if (missing) {
+                            msg += `Chybí ti proměnná <b>${missing}</b>. V celé této oblasti má stále stejnou hodnotu.`;
+                        } else {
+                            msg += "Nesprávně zvolené proměnné.";
+                        }
+                    }
+                    feedback.push(msg);
+                } else {
+                    // Check Negations
+                    let negationsCorrect = true;
+                    correctVars.forEach(v => {
+                        const realBit = correctValues[v]; 
+                        const userState = user[v]; 
+                        let expected;
+                        if (state.solveMode === 'minterm') expected = (realBit === 1) ? 1 : 2;
+                        else expected = (realBit === 0) ? 1 : 2; 
+                        
+                        if (userState !== expected) {
+                            negationsCorrect = false;
+                            feedback.push(`Skupina ${idx+1}: Proměnnou <b>${v}</b> máš správně, ale zkontroluj její hodnotu (negaci).`);
+                        }
+                    });
+                    if (!negationsCorrect) allCorrect = false;
                 }
-
-                logicSelected.forEach(v => {
-                    const realBit = logic[v]; 
-                    const userState = user[v]; 
-                    let correctState;
-                    if (state.solveMode === 'minterm') correctState = (realBit === 1) ? 1 : 2;
-                    else correctState = (realBit === 0) ? 1 : 2; 
-                    if (userState !== correctState) err = `Skupina ${idx+1}: Chyba v negaci (${v}).`;
-                });
             });
 
-            if (err) {
+            if (!allCorrect) {
                 status.className = 'status-msg error-text';
-                status.innerText = err;
+                status.innerHTML = feedback.join("<br>");
             } else {
                 status.className = 'status-msg success-text';
                 status.innerText = "VÝBORNĚ! Vše je správně.";
@@ -911,6 +936,65 @@
                  if(cell) { cell.classList.add('target-pulse'); setTimeout(()=>cell.classList.remove('target-pulse'), 2000); }
                  return;
             }
+            
+            let redundantGroup = null;
+            state.groups.forEach((g, idx) => {
+                const myIndices = g.indices;
+                const otherIndices = new Set();
+                state.groups.forEach((other, otherIdx) => {
+                    if (idx !== otherIdx) other.indices.forEach(i => otherIndices.add(i));
+                });
+                if (myIndices.every(i => otherIndices.has(i))) redundantGroup = idx + 1;
+            });
+            
+            if (redundantGroup !== null) {
+                box.innerHTML = `<strong>Tip k efektivitě:</strong> Podívej se na Skupinu ${redundantGroup}. Všechny jedničky (či nuly), které tato skupina pokrývá, už jsou pokryty jinými skupinami. <br>V logice platí pravidlo jednoduchosti – pokud skupina nepřináší nic nového, je nadbytečná a měla by se odstranit.`;
+                return;
+            }
+
+            // Check Variables - Educational Breakdown
+            for (let i = 0; i < state.groups.length; i++) {
+                const group = state.groups[i];
+                const logic = getGroupLogic(group.indices); // { involvedVars: ['A'], values: {A:1} }
+                const userVars = group.vars; // {A:1, B:0, ...}
+                
+                const correctVars = new Set(logic.involvedVars);
+                const varNames = getVarNames();
+                
+                // A. Check for variables that SHOULD be removed (Changing)
+                for (let v of varNames) {
+                    if (userVars[v] !== 0 && !correctVars.has(v)) {
+                        box.innerHTML = `<strong>Tip k proměnné ${v}:</strong> Podívej se na Skupinu ${i+1}. Vybral jsi proměnnou <b>${v}</b>, ale když se podíváš do mapy na tuto oblast, najdeš tam pro ${v} nuly i jedničky. <br>Pamatuj: Pokud se hodnota proměnné v rámci skupiny mění, nemůže být součástí výsledného výrazu (musí se vyloučit).`;
+                        return;
+                    }
+                }
+                
+                // B. Check for variables that SHOULD be kept (Constant)
+                for (let v of varNames) {
+                    if (userVars[v] === 0 && correctVars.has(v)) {
+                        box.innerHTML = `<strong>Tip k proměnné ${v}:</strong> Podívej se na Skupinu ${i+1}. V celé této vyznačené oblasti má proměnná <b>${v}</b> stále stejnou hodnotu (nemění se). <br>Taková proměnná je pro definici skupiny klíčová a nesmíš ji vynechat.`;
+                        return;
+                    }
+                }
+                
+                // C. Check Negations
+                for (let v of logic.involvedVars) {
+                    const correctBit = logic.values[v]; // 1 or 0
+                    const userVal = userVars[v]; // 1 or 2
+                    
+                    let expected;
+                    if (state.solveMode === 'minterm') expected = (correctBit === 1) ? 1 : 2;
+                    else expected = (correctBit === 0) ? 1 : 2;
+                    
+                    if (userVal !== expected) {
+                        const valStr = correctBit; 
+                        const modeStr = state.solveMode === 'minterm' ? "mintermy (hledáme 1)" : "maxtermy (hledáme 0)";
+                        box.innerHTML = `<strong>Tip k negaci (${v}):</strong> Ve Skupině ${i+1} máš proměnnou <b>${v}</b> správně, ale zkontroluj její hodnotu. <br>V mapě je pro tuto oblast ${v} = ${valStr}. Pro ${modeStr} to znamená, že musíš zvolit opačnou formu (negaci/přímou).`;
+                        return;
+                    }
+                }
+            }
+            
             box.innerText = "Vše pokryto. Zkontroluj proměnné.";
         }
 
@@ -956,21 +1040,32 @@
             return true;
         }
 
-        function getLogic(indices) {
-            let and=indices[0], or=indices[0];
-            indices.forEach(i => { and&=i; or|=i; });
-            const diff = and ^ or;
-            const logic = {};
-            const names = getVarNames();
-            for(let i=0; i<state.vars; i++) {
-                const bit = 1 << (state.vars - 1 - i); 
-                if ((diff & bit) === 0) {
-                    const val = (indices[0] & bit) !== 0 ? 1 : 0;
-                    logic[names[i]] = val;
+        function getGroupLogic(indices) {
+            if (indices.length === 0) return { involvedVars: [], values: {} };
+            
+            let combinedAnd = indices[0];
+            let combinedOr = indices[0];
+            indices.forEach(idx => { combinedAnd &= idx; combinedOr |= idx; });
+            const diff = combinedAnd ^ combinedOr; 
+            
+            const involvedVars = [];
+            const values = {};
+            const varNames = getVarNames();
+            
+            for (let i = 0; i < state.vars; i++) {
+                const bitPos = state.vars - 1 - i;
+                if ((diff & (1 << bitPos)) === 0) {
+                    const vName = varNames[i];
+                    involvedVars.push(vName);
+                    // Check value in first index
+                    const isOne = (indices[0] & (1 << bitPos)) !== 0;
+                    values[vName] = isOne ? 1 : 0;
                 }
             }
-            return logic;
+            return { involvedVars, values };
         }
+        
+        const getLogic = getGroupLogic; 
 
         function drawColemanLines(wrapper) {
             const cellSize = 60; // Same as CSS
