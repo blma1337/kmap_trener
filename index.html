@@ -3,20 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Karnaughova Mapa - Interaktivní Trenér</title>
+    <title>Karnaughova Mapa - Kompletní Trenér</title>
     <style>
         :root {
-            /* Warm Theme Palette */
             --bg-color: #1a1a1a;
             --panel-bg: #262626;
             --text-color: #eee;
-            --accent: #FF7043; /* Deep Orange */
+            --accent: #FF7043; 
             --accent-hover: #D84315;
-            --secondary-btn: #5d4037; /* Brownish */
+            --secondary-btn: #5d4037; 
+            --hint-btn: #FDD835; 
+            --hint-text: #212121;
             --error: #ef5350;
             --success: #66bb6a;
-            
-            --grid-border: #444;
+            --grid-border: #555;
             --cell-size: 60px;
         }
 
@@ -38,10 +38,11 @@
         .main-container {
             display: flex;
             flex-wrap: wrap;
-            gap: 40px;
+            gap: 30px;
             justify-content: center;
             width: 100%;
-            max-width: 1250px;
+            max-width: 1400px;
+            align-items: flex-start;
         }
 
         .panel {
@@ -50,17 +51,23 @@
             border-radius: 8px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             flex: 1;
-            min-width: 350px;
+            min-width: 380px;
             border-top: 4px solid var(--accent);
+            position: relative;
         }
 
-        /* Controls */
         .controls {
             display: flex;
-            gap: 10px;
+            gap: 15px;
             margin-bottom: 20px;
             align-items: center;
             flex-wrap: wrap;
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 1000px;
+            justify-content: center;
         }
 
         button {
@@ -73,61 +80,88 @@
             font-weight: bold;
             transition: 0.2s;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
-
         button:hover { background-color: var(--accent-hover); color: white; }
+        button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
+        
         button.secondary { background-color: var(--secondary-btn); color: #ddd; }
         button.secondary:hover { background-color: #4e342e; }
         button.success { background-color: var(--success); color: white; }
+        button.hint-btn { background-color: var(--hint-btn); color: var(--hint-text); }
         
-        select {
-            padding: 10px;
-            background: #333;
-            color: white;
-            border: 1px solid #555;
-            border-radius: 4px;
+        button.eye-btn {
+            padding: 2px 6px; font-size: 1rem; background: transparent; border: 1px solid #555; color: #aaa;
+        }
+        button.eye-btn:hover { background: #444; color: white; }
+
+        select, input[type="text"] {
+            padding: 10px; background: #222; color: white; border: 1px solid #555; border-radius: 4px;
         }
 
-        /* K-Map Visualization Wrapper */
-        .map-wrapper {
-            position: relative;
-            padding: 40px; 
-            display: inline-block;
-            margin: 20px auto;
-            user-select: none;
+        /* Truth Table */
+        .truth-table-container {
+            max-height: 500px; overflow-y: auto; border: 1px solid #444;
+        }
+        table.truth-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; text-align: center; }
+        table.truth-table th { background: #333; position: sticky; top: 0; padding: 8px; color: var(--accent); }
+        table.truth-table td { border-bottom: 1px solid #444; padding: 4px; }
+        table.truth-table tr.active-row { background: rgba(255, 112, 67, 0.15); border: 1px solid var(--accent); }
+        
+        .output-cell {
+            background: #444; color: white; cursor: pointer; font-weight: bold; width: 40px; border: 1px solid #666; transition: 0.2s;
+        }
+        .output-cell:hover { background: #555; }
+        .output-cell.is-1 { color: var(--success); }
+        .output-cell.is-0 { color: var(--error); }
+
+        /* K-Map */
+        .map-container-relative {
+            position: relative; display: inline-block; margin: 30px;
+            padding: 40px; /* Space for lines */
         }
 
-        /* The Grid Table */
-        table.kmap {
-            border-collapse: collapse;
-            margin: 0;
-            background: #1e1e1e;
-        }
-
-        td {
-            width: var(--cell-size);
-            height: var(--cell-size);
+        table.kmap { border-collapse: collapse; margin: 0; background: #1e1e1e; }
+        table.kmap td {
+            width: var(--cell-size); height: var(--cell-size);
             border: 1px solid var(--grid-border);
-            text-align: center;
-            font-size: 1.5rem;
-            cursor: pointer;
-            position: relative;
-            z-index: 2;
+            text-align: center; font-size: 1.3rem;
+            cursor: pointer; position: relative; z-index: 2;
+            transition: all 0.3s ease;
+            box-sizing: border-box; 
         }
-
-        /* Cell States */
-        td:hover { background-color: #333; }
-        td[data-val="1"] { color: white; font-weight: bold; }
-        td[data-val="0"] { color: #555; }
+        table.kmap td[data-val="1"] { color: white; font-weight: bold; }
+        table.kmap td[data-val="0"] { color: #555; }
         
-        td.selected {
+        table.kmap td.selected {
             background-color: rgba(255, 112, 67, 0.2);
             box-shadow: inset 0 0 0 2px var(--accent);
         }
 
-        /* Variable Indicator Lines */
+        /* ANIMATION STATES */
+        table.kmap td.dimmed { opacity: 0.1; filter: grayscale(100%); }
+        
+        table.kmap td.zone-valid { 
+            background-color: rgba(76, 175, 80, 0.4) !important; 
+            box-shadow: inset 0 0 0 3px #4CAF50;
+            opacity: 1 !important; filter: none !important;
+        }
+        table.kmap td.zone-invalid { 
+            background-color: rgba(244, 67, 54, 0.4) !important; 
+            box-shadow: inset 0 0 0 3px #F44336;
+            opacity: 1 !important; filter: none !important;
+        }
+        
+        table.kmap td.target-pulse { 
+            animation: pulseTarget 1s infinite; 
+            background-color: rgba(255, 193, 7, 0.4) !important; 
+            border: 2px solid #FFC107; 
+            opacity: 1 !important; filter: none !important;
+        }
+
+        @keyframes pulseTarget { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
+
+        /* Coleman Lines (Restored Style v4 - Solid Bars) */
         .var-line {
             position: absolute;
             background-color: var(--text-color);
@@ -138,287 +172,511 @@
             font-weight: bold;
             z-index: 10;
         }
-
         .line-horizontal { height: 2px; border-left: 2px solid var(--text-color); border-right: 2px solid var(--text-color); }
         .line-vertical { width: 2px; border-top: 2px solid var(--text-color); border-bottom: 2px solid var(--text-color); }
-        .line-label { position: absolute; background: var(--bg-color); padding: 0 4px; }
-
-        /* Workflow Steps */
-        .workflow-step {
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #444;
-            transition: opacity 0.3s;
-        }
         
-        .instruction { color: #bbb; margin-bottom: 15px; font-style: italic; font-size: 0.95rem; }
-
-        /* Group List */
-        .group-list { list-style: none; padding: 0; margin-top: 15px; }
-        .group-item {
-            background: #333;
-            margin-bottom: 15px;
-            padding: 15px;
-            border-radius: 6px;
-            border-left: 6px solid gray;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .group-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #444;
-            padding-bottom: 8px;
-        }
-
-        /* Variable Toggles Container */
-        .var-toggles {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        /* Custom Toggle Button */
-        .var-btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            width: 44px; /* Slightly wider for !A */
-            height: 44px;
-            border-radius: 4px;
-            border: 1px solid #555;
-            background: #222;
-            cursor: pointer;
-            font-family: monospace;
-            font-weight: bold;
-            transition: 0.2s;
-            user-select: none;
-        }
-        
-        .var-btn span.label { font-size: 0.7rem; color: #888; margin-bottom: 2px; }
-        .var-btn span.val { font-size: 1.1rem; color: #ddd; }
-
-        /* Toggle States */
-        .var-btn.state-ignore { background: #2a2a2a; border-color: #444; }
-        .var-btn.state-ignore span.val { color: #666; } /* Dash */
-        
-        .var-btn.state-1 { background: rgba(76, 175, 80, 0.2); border-color: #4caf50; }
-        .var-btn.state-1 span.val { color: #4caf50; } /* A (Normal) */
-        
-        .var-btn.state-0 { background: rgba(244, 67, 54, 0.2); border-color: #f44336; }
-        .var-btn.state-0 span.val { color: #f44336; } /* !A (Negated) */
-
-        .status-msg {
-            margin-top: 5px;
-            font-size: 0.9rem;
-            min-height: 1.2em;
-            padding: 8px;
-            border-radius: 4px;
-        }
-        .error-text { color: #ffab91; background: rgba(255, 0, 0, 0.1); }
-        .success-text { color: #a5d6a7; background: rgba(0, 255, 0, 0.1); }
-
-        .minterm-idx {
+        .line-label {
             position: absolute;
-            bottom: 2px; right: 2px;
-            font-size: 0.6rem; color: #666;
-            pointer-events: none;
+            background: var(--bg-color);
+            padding: 0 4px;
+            color: var(--text-color);
         }
 
-        .group-indicator {
-            position: absolute; pointer-events: none;
-            border-radius: 4px;
-            box-shadow: 0 0 2px rgba(0,0,0,0.5);
+        /* UI Elements */
+        .instruction { color: #aaa; margin-bottom: 10px; font-style: italic; font-size: 0.9rem; }
+        .status-msg { margin-top: 5px; padding: 10px; border-radius: 4px; font-size: 0.9rem; display: none; }
+        .error-text { color: #ffab91; background: rgba(255, 0, 0, 0.15); border-left: 4px solid var(--error); }
+        .success-text { color: #a5d6a7; background: rgba(0, 255, 0, 0.15); border-left: 4px solid var(--success); }
+        .hint-text { color: #FFF59D; background: rgba(253, 216, 53, 0.15); border-left: 4px solid #FDD835; }
+        
+        .anim-controls {
+            background: #222; padding: 10px; border-radius: 8px; border: 1px solid var(--accent);
+            margin-top: 15px; display: none; text-align: center; max-width: 400px; margin-left: auto; margin-right: auto;
         }
+        .anim-step-text { color: #fff; margin-bottom: 10px; min-height: 1.2em; font-size: 0.95rem; }
 
-        .mode-toggle {
-            background: #333;
-            padding: 10px;
-            border-radius: 4px;
-            margin-bottom: 10px;
-            border: 1px solid #555;
+        .group-list { list-style: none; padding: 0; }
+        .group-item { background: #333; margin-bottom: 10px; padding: 10px; border-radius: 4px; border-left: 5px solid gray; }
+        .var-toggles { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+        .var-btn { width: 36px; height: 36px; border: 1px solid #555; background: #222; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 3px; }
+        .var-btn.s-1 { border-color: var(--success); } .var-btn.s-1 span.v { color: var(--success); }
+        .var-btn.s-0 { border-color: var(--error); } .var-btn.s-0 span.v { color: var(--error); }
+        .group-indicator { position: absolute; pointer-events: none; border-radius: 4px; box-shadow: 0 0 2px rgba(0,0,0,0.5); }
+        
+        .custom-input-group {
+            display: flex; gap: 5px; align-items: center; background: #222; padding: 5px 10px; border-radius: 4px; border: 1px solid #555;
         }
-
-        @keyframes fadeIn { from { opacity:0; transform: translateY(5px); } to { opacity:1; transform: translateY(0); } }
     </style>
 </head>
 <body>
 
-    <h1>Trenér Minimalizace Karnaughových Map</h1>
+    <h1>Karnaughova Mapa: Kompletní Trenažér</h1>
 
     <div class="controls">
         <label>Počet proměnných:</label>
-        <select id="varCountSelect" onchange="initApp()">
+        <select id="varCountSelect" onchange="resetApp()">
             <option value="2">2 (A, B)</option>
             <option value="3">3 (A, B, C)</option>
             <option value="4" selected>4 (A, B, C, D)</option>
         </select>
-        <button onclick="randomizeMap()">🎲 Generovat náhodně</button>
-        <button class="secondary" onclick="clearMap()">🗑️ Vymazat</button>
+        
+        <label style="margin-left:15px;">Minimalizujeme:</label>
+        <select id="solveModeSelect" onchange="resetApp()">
+            <option value="minterm">Mintermy (1)</option>
+            <option value="maxterm">Maxtermy (0)</option>
+        </select>
+        
+        <div style="flex-grow:1"></div>
+        
+        <div class="custom-input-group">
+            <input type="text" id="customIndices" placeholder="Např. 0, 2, 5, 8" style="width: 150px; font-size:0.8rem;">
+            <button onclick="applyCustomIndices()" style="padding: 8px 12px; font-size:0.75rem;">Použít vlastní</button>
+        </div>
+        
+        <button onclick="generateNewTask()" style="margin-left:10px;">🎲 Nové Zadání</button>
     </div>
 
     <div class="main-container">
-        <!-- LEFT: Map Visualization -->
-        <div class="panel" style="flex: 0 0 auto; display: flex; justify-content: center; align-items: center; min-width: 400px;">
-            <div id="mapContainer" class="map-wrapper"></div>
-        </div>
-
-        <!-- RIGHT: Interactive Process -->
-        <div class="panel">
-            <h2>Postup Výpočtu</h2>
+        
+        <!-- PANEL 1: Zadání & Tabulka -->
+        <div class="panel" style="flex: 0 0 320px;">
+            <h3>1. Pravdivostní Tabulka</h3>
+            <p class="instruction" id="taskDesc">Vyplň sloupec Y (0/1) podle zadání.</p>
             
-            <!-- Step 1: Definition -->
-            <div class="workflow-step" id="step1">
-                <h3>1. Definice mapy</h3>
-                <p class="instruction">Klikáním do mapy nastav 1 nebo 0. Poté zvol, co budeme minimalizovat.</p>
-                
-                <div class="mode-toggle">
-                    <label style="display:block; margin-bottom:5px; font-size:0.9rem; color:#aaa;">Co hledáme?</label>
-                    <select id="solveModeSelect" style="width:100%">
-                        <option value="minterm">Mintermy (Shlukování jedniček) &rarr; Součtový tvar</option>
-                        <option value="maxterm">Maxtermy (Shlukování nul) &rarr; Součinový tvar</option>
-                    </select>
-                </div>
-
-                <button onclick="lockMapAndStartGrouping()">✅ Mapa je hotová</button>
+            <div style="background:#222; padding:10px; border:1px solid #444; margin-bottom:10px; border-radius:4px;">
+                <span style="color:#aaa; font-size:0.8rem;">Zadání (Indexy):</span><br>
+                <strong id="taskIndices" style="color:var(--accent); font-family:monospace;">-</strong>
             </div>
 
-            <!-- Step 2: Grouping & Solving -->
-            <div class="workflow-step" id="step2" style="display:none;">
-                <h3>2. Tvorba skupin a Výpočet</h3>
-                <p class="instruction" id="step2Inst">
-                    <!-- Text will be updated via JS based on mode -->
-                </p>
-                
-                <div style="display:flex; gap:10px; margin-bottom: 10px;">
-                    <button class="secondary" onclick="createGroupFromSelection()">➕ Vytvořit skupinu</button>
-                    <button class="secondary" onclick="clearSelection()" style="background:#444">Zrušit výběr</button>
-                </div>
-                
-                <p id="groupError" class="status-msg error-text" style="display:none"></p>
+            <div class="truth-table-container">
+                <table class="truth-table" id="truthTable"></table>
+            </div>
+            
+            <div style="margin-top:15px;">
+                <button id="btnCheckTable" onclick="checkTable()" style="width:100%">Zkontrolovat tabulku</button>
+                <div id="tableMsg" class="status-msg"></div>
+            </div>
 
-                <ul id="groupsList" class="group-list"></ul>
-                
-                <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #444;">
-                    <div style="font-size: 1.2rem; font-family: monospace; background: #1a1a1a; padding: 15px; margin-bottom: 15px; border-left: 3px solid var(--accent); color: var(--accent);" id="finalEquationDisplay">
-                        Y = ...
-                    </div>
-                    <button class="success" onclick="checkFinalResult()">🏆 Zkontrolovat výsledek</button>
-                    <button class="secondary" onclick="backToEdit()" style="float:right; font-size:0.8rem">✏️ Zpět k editaci</button>
-                    <p id="finalStatus" class="status-msg" style="display:none"></p>
-                </div>
+            <!-- Skip Button Moved Here -->
+            <div style="margin-top: 20px; border-top: 1px solid #444; padding-top: 15px;">
+                 <button onclick="skipToSolver()" style="width:100%; background:transparent; border:1px dashed #666; color:#888; font-size:0.8rem;">⏩ Přeskočit vyplňování (Vyplnit za mě)</button>
             </div>
         </div>
+
+        <!-- PANEL 2: Mapa -->
+        <div class="panel" id="mapPanel" style="opacity: 0.5; pointer-events: none;">
+            <h3>2. Karnaughova Mapa</h3>
+            <p class="instruction">
+                Přepiš hodnoty z tabulky do mapy. 
+                <br><em>Tip: Použij "oko" v tabulce pro nápovědu.</em>
+            </p>
+            
+            <div style="text-align:center;">
+                <div class="map-container-relative" id="mapWrapper">
+                    <div id="mapContainer"></div>
+                </div>
+                
+                <!-- Interactive Animation Panel -->
+                <div id="animPanel" class="anim-controls">
+                    <div id="animText" class="anim-step-text">Připraven k eliminaci...</div>
+                    <button id="animNextBtn" onclick="nextAnimStep()" style="background-color:#4CAF50; color:white;">Další krok &rarr;</button>
+                    <button class="secondary" onclick="stopAnimation()" style="font-size:0.8rem; margin-left:10px;">Zrušit</button>
+                </div>
+            </div>
+            
+            <button id="btnCheckMap" onclick="checkMapAndUnlock()" style="width:100%; margin-top:20px;">Zkontrolovat přepis do mapy</button>
+            <div id="mapMsg" class="status-msg"></div>
+        </div>
+
+        <!-- PANEL 3: Minimalizace -->
+        <div class="panel" id="solvePanel" style="opacity: 0.5; pointer-events: none;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>3. Minimalizace</h3>
+                <button class="hint-btn" onclick="showSmartHint()">💡 Nápověda</button>
+            </div>
+            
+            <p class="instruction" id="solveInst">...</p>
+            
+            <div style="display:flex; gap:10px; margin-bottom: 10px;">
+                <button class="secondary" onclick="createGroupFromSelection()">➕ Přidat skupinu</button>
+                <button class="secondary" onclick="clearSelection()" style="background:#444">Zrušit výběr</button>
+            </div>
+
+            <div id="hintBox" class="status-msg hint-text"></div>
+            <div id="groupError" class="status-msg error-text"></div>
+
+            <ul id="groupsList" class="group-list"></ul>
+
+            <div style="margin-top: 20px; border-top: 1px solid #444; padding-top:15px;">
+                <div style="font-family:monospace; background:#111; padding:10px; color:var(--accent); font-size:1.2rem; margin-bottom:10px;" id="finalEquation">Y = ...</div>
+                <button class="success" onclick="checkFinalResult()">🏆 Finální kontrola</button>
+                <div id="finalStatus" class="status-msg"></div>
+            </div>
+        </div>
+
     </div>
 
     <script>
-        // --- KONFIGURACE ---
-        const colors = [
-            '#FF5722', '#FFC107', '#8BC34A', '#E040FB', '#00BCD4', 
-            '#f44336', '#e91e63', '#3f51b5', '#009688', '#ffeb3b', '#cddc39'
-        ];
-        
-        let state = {
-            vars: 4,
-            grid: [],
-            mode: 'edit',
-            solveMode: 'minterm', // 'minterm' (1s) or 'maxterm' (0s)
-            selectedIndices: new Set(),
-            groups: [], 
-            nextColorIndex: 0 
-        };
-
+        // --- CONFIG ---
+        const colors = ['#FF5722', '#FFC107', '#8BC34A', '#E040FB', '#00BCD4', '#f44336', '#3f51b5', '#cddc39'];
         const grayCodes = { 1: [0, 1], 2: [0, 1, 3, 2] };
 
-        function initApp() {
+        // --- STATE ---
+        let state = {
+            vars: 4,
+            solveMode: 'minterm', 
+            taskIndices: [],      
+            tableValues: [],      
+            mapGrid: [],          
+            isTableCorrect: false,
+            isMapCorrect: false,
+            mode: 'edit',         
+            selectedIndices: new Set(),
+            groups: [],
+            nextColorIndex: 0,
+            animState: null
+        };
+
+        // --- INIT & RESET ---
+        function resetApp() {
             state.vars = parseInt(document.getElementById('varCountSelect').value);
-            state.grid = new Array(Math.pow(2, state.vars)).fill(0);
-            resetWorkflow();
-            renderMap();
+            state.solveMode = document.getElementById('solveModeSelect').value;
+            generateNewTask();
         }
 
-        function resetWorkflow() {
-            state.mode = 'edit';
-            state.selectedIndices.clear();
-            state.groups = [];
-            state.nextColorIndex = 0;
-            state.solveMode = 'minterm';
+        function generateNewTask() {
+            const totalCells = Math.pow(2, state.vars);
+            state.taskIndices = [];
+            for(let i=0; i<totalCells; i++) { if(Math.random() > 0.5) state.taskIndices.push(i); }
+            state.taskIndices.sort((a,b) => a-b);
             
-            document.getElementById('step1').style.display = 'block';
-            document.getElementById('step2').style.display = 'none';
+            updateTaskUI();
+            resetDataAndUI();
+        }
+        
+        function applyCustomIndices() {
+            const input = document.getElementById('customIndices').value;
+            const indices = input.split(',')
+                .map(s => parseInt(s.trim()))
+                .filter(n => !isNaN(n) && n >= 0 && n < Math.pow(2, state.vars));
+            
+            if (indices.length === 0 && input.trim() !== "") {
+                alert("Žádné platné indexy.");
+                return;
+            }
+            
+            state.taskIndices = [...new Set(indices)].sort((a,b) => a-b);
+            updateTaskUI();
+            resetDataAndUI();
+        }
+        
+        function updateTaskUI() {
+            document.getElementById('taskIndices').innerText = state.taskIndices.join(', ');
+            document.getElementById('taskDesc').innerText = `Vyplň sloupec Y. ${state.solveMode === 'minterm' ? 'Jedničku' : 'Nulu'} dej tam, kde index odpovídá zadání.`;
+        }
+        
+        function resetDataAndUI() {
+            const totalCells = Math.pow(2, state.vars);
+            state.tableValues = new Array(totalCells).fill(0);
+            state.mapGrid = new Array(totalCells).fill(0); 
+            state.groups = [];
+            state.selectedIndices.clear();
+            state.isTableCorrect = false;
+            state.isMapCorrect = false;
+            state.nextColorIndex = 0;
+            stopAnimation();
+
+            document.getElementById('mapPanel').style.opacity = '0.5';
+            document.getElementById('mapPanel').style.pointerEvents = 'none';
+            document.getElementById('solvePanel').style.opacity = '0.5';
+            document.getElementById('solvePanel').style.pointerEvents = 'none';
+            document.getElementById('btnCheckTable').disabled = false;
+            document.getElementById('btnCheckMap').disabled = false;
+            
+            hideMsgs();
             document.getElementById('groupsList').innerHTML = '';
-            document.getElementById('groupError').style.display = 'none';
-            document.getElementById('finalStatus').style.display = 'none';
-            document.getElementById('finalEquationDisplay').innerText = 'Y = ...';
-            document.getElementById('varCountSelect').disabled = false;
-            document.getElementById('solveModeSelect').value = 'minterm';
-            document.getElementById('solveModeSelect').disabled = false;
+            document.getElementById('finalEquation').innerText = 'Y = ...';
+            
+            renderTruthTable();
+            renderMap();
+        }
+        
+        // --- SKIP FEATURE ---
+        function skipToSolver() {
+            const totalCells = Math.pow(2, state.vars);
+            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            const otherVal = targetVal === 1 ? 0 : 1;
+            
+            // Auto-fill Table & Map
+            for(let i=0; i<totalCells; i++) {
+                const val = state.taskIndices.includes(i) ? targetVal : otherVal;
+                state.tableValues[i] = val;
+                state.mapGrid[i] = val;
+            }
+            
+            // Set flags
+            state.isTableCorrect = true;
+            state.isMapCorrect = true;
+            
+            // UI Updates
+            renderTruthTable();
+            renderMap();
+            
+            document.getElementById('mapPanel').style.opacity = '1';
+            document.getElementById('mapPanel').style.pointerEvents = 'auto';
+            document.getElementById('btnCheckTable').disabled = true;
+            document.getElementById('btnCheckMap').disabled = true;
+            document.getElementById('solvePanel').style.opacity = '1';
+            document.getElementById('solvePanel').style.pointerEvents = 'auto';
+            
+            const targetStr = state.solveMode === 'minterm' ? 'jedničky' : 'nuly';
+            document.getElementById('solveInst').innerText = `1. Označ ${targetStr}. 2. Vytvoř skupinu. 3. Urči proměnné.`;
+            
+            // Hide messages
+            hideMsgs();
         }
 
-        function randomizeMap() {
-            resetWorkflow();
-            for(let i=0; i<state.grid.length; i++) state.grid[i] = Math.random() > 0.6 ? 1 : 0;
+        // --- STEP 1: TRUTH TABLE ---
+        function renderTruthTable() {
+            const table = document.getElementById('truthTable');
+            table.innerHTML = '';
+            
+            const thead = document.createElement('tr');
+            const vars = getVarNames();
+            const thHint = document.createElement('th'); thHint.innerText = '🔍'; thead.appendChild(thHint);
+            
+            vars.forEach(v => {
+                const th = document.createElement('th'); th.innerText = v; thead.appendChild(th);
+            });
+            const thY = document.createElement('th'); thY.innerText = 'Y'; thead.appendChild(thY);
+            table.appendChild(thead);
+
+            const totalRows = Math.pow(2, state.vars);
+            for(let i=0; i<totalRows; i++) {
+                const tr = document.createElement('tr');
+                tr.id = `row-${i}`;
+                
+                const tdEye = document.createElement('td');
+                const btn = document.createElement('button');
+                btn.className = 'eye-btn';
+                btn.innerText = '👁️';
+                btn.title = "Ukázat v mapě";
+                btn.onclick = () => startAnimation(i);
+                tdEye.appendChild(btn);
+                tr.appendChild(tdEye);
+
+                for(let bit=state.vars-1; bit>=0; bit--) {
+                    const td = document.createElement('td');
+                    td.innerText = (i >> bit) & 1;
+                    tr.appendChild(td);
+                }
+                
+                const tdY = document.createElement('td');
+                tdY.className = 'output-cell';
+                tdY.innerText = state.tableValues[i];
+                tdY.onclick = () => {
+                    if(state.isTableCorrect) return; 
+                    state.tableValues[i] = state.tableValues[i] === 1 ? 0 : 1;
+                    tdY.innerText = state.tableValues[i];
+                    updateTableCellColor(tdY, state.tableValues[i]);
+                };
+                updateTableCellColor(tdY, state.tableValues[i]);
+                tr.appendChild(tdY);
+
+                table.appendChild(tr);
+            }
+        }
+
+        function updateTableCellColor(cell, val) {
+            cell.className = 'output-cell ' + (val === 1 ? 'is-1' : 'is-0');
+        }
+
+        function checkTable() {
+            let correct = true;
+            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            const otherVal = targetVal === 1 ? 0 : 1;
+
+            for(let i=0; i<state.tableValues.length; i++) {
+                const isTarget = state.taskIndices.includes(i);
+                const userVal = state.tableValues[i];
+                if (isTarget && userVal !== targetVal) correct = false;
+                if (!isTarget && userVal !== otherVal) correct = false;
+            }
+
+            const msg = document.getElementById('tableMsg');
+            msg.style.display = 'block';
+            if (correct) {
+                msg.className = 'status-msg success-text';
+                msg.innerText = "Správně! Nyní přenes hodnoty do mapy.";
+                state.isTableCorrect = true;
+                
+                document.getElementById('mapPanel').style.opacity = '1';
+                document.getElementById('mapPanel').style.pointerEvents = 'auto';
+                document.getElementById('btnCheckTable').disabled = true;
+            } else {
+                msg.className = 'status-msg error-text';
+                msg.innerText = "Chyba v tabulce. Zkontroluj zadání.";
+            }
+        }
+
+        // --- INTERACTIVE ANIMATION ---
+        
+        function startAnimation(rowIndex) {
+            if (state.animState) stopAnimation();
+            
+            document.querySelectorAll('tr').forEach(tr => tr.classList.remove('active-row'));
+            document.getElementById(`row-${rowIndex}`).classList.add('active-row');
+
+            document.getElementById('animPanel').style.display = 'block';
+            
+            // RESET BUTTON CLICK HANDLER (FIX FOR BUG)
+            const btn = document.getElementById('animNextBtn');
+            btn.innerText = "Začít eliminaci";
+            btn.onclick = nextAnimStep;
+
+            document.getElementById('animText').innerText = `Hledáme políčko pro řádek ${rowIndex} (binárně ${rowIndex.toString(2).padStart(state.vars, '0')}).`;
+
+            // Initial visual state: Dim EVERYTHING
+            const cells = document.querySelectorAll('table.kmap td[data-index]');
+            cells.forEach(c => {
+                c.className = ''; 
+                c.classList.add('dimmed');
+            });
+
+            // Initialize candidates: All cells are candidates
+            const candidates = new Set();
+            const total = Math.pow(2, state.vars);
+            for(let i=0; i<total; i++) candidates.add(i);
+
+            state.animState = {
+                rowIndex: rowIndex,
+                step: 0,
+                phase: 'SHOW',
+                candidates: candidates
+            };
+        }
+
+        function nextAnimStep() {
+            if (!state.animState) return;
+            const { rowIndex, step, phase, candidates } = state.animState;
+            const varNames = getVarNames();
+            const getBit = (idx, varPos) => (idx >> (state.vars - 1 - varPos)) & 1;
+            const cells = document.querySelectorAll('table.kmap td[data-index]');
+            const txt = document.getElementById('animText');
+            const btn = document.getElementById('animNextBtn');
+
+            if (step >= state.vars) {
+                // Final State
+                const targetCell = document.querySelector(`td[data-index="${rowIndex}"]`);
+                if(targetCell) {
+                    targetCell.className = ''; 
+                    targetCell.classList.add('target-pulse');
+                }
+                txt.innerHTML = `<span style="color:#66bb6a; font-weight:bold;">Cíl nalezen!</span> Zde patří hodnota z tabulky.`;
+                btn.innerText = "Hotovo";
+                btn.onclick = stopAnimation;
+                return;
+            }
+
+            const varName = varNames[step];
+            const requiredBit = getBit(rowIndex, step); 
+
+            if (phase === 'SHOW') {
+                txt.innerHTML = `Krok ${step+1}: Podmínka <b>${varName} = ${requiredBit}</b>.<br><span style="color:#66bb6a">Zelená = Splňuje</span>, <span style="color:#ef5350">Červená = Nesplňuje (Vyloučit)</span>.`;
+                
+                cells.forEach(c => {
+                    const idx = parseInt(c.dataset.index);
+                    
+                    // Only interact with active candidates
+                    if (!candidates.has(idx)) return;
+
+                    c.classList.remove('dimmed'); // Highlight to show red/green status
+                    
+                    const cellBit = getBit(idx, step);
+                    if (cellBit === requiredBit) {
+                        c.classList.add('zone-valid');
+                    } else {
+                        c.classList.add('zone-invalid');
+                    }
+                });
+                
+                btn.innerText = "Eliminovat červenou";
+                state.animState.phase = 'ELIMINATE';
+
+            } else {
+                // ELIMINATE PHASE
+                txt.innerHTML = `Eliminována oblast, kde <b>${varName} != ${requiredBit}</b>.`;
+                
+                cells.forEach(c => {
+                    const idx = parseInt(c.dataset.index);
+                    if (!candidates.has(idx)) return;
+
+                    if (c.classList.contains('zone-invalid')) {
+                        // Eliminate
+                        c.classList.remove('zone-invalid');
+                        c.classList.add('dimmed');
+                        candidates.delete(idx); // Remove from logical candidates
+                    }
+                    if (c.classList.contains('zone-valid')) {
+                        // Keep (strip color, keep undimmed)
+                        c.classList.remove('zone-valid');
+                    }
+                });
+                
+                state.animState.step++;
+                state.animState.phase = 'SHOW';
+                btn.innerText = "Další podmínka";
+            }
+        }
+
+        function stopAnimation() {
+            state.animState = null;
+            document.getElementById('animPanel').style.display = 'none';
+            document.querySelectorAll('tr').forEach(tr => tr.classList.remove('active-row'));
+            
+            // Reset map visual completely
             renderMap();
         }
 
-        function clearMap() {
-            resetWorkflow();
-            state.grid.fill(0);
-            renderMap();
-        }
+        // --- MAP RENDERING ---
 
-        // --- VISUALIZATION ---
         function renderMap() {
             const wrapper = document.getElementById('mapContainer');
-            wrapper.innerHTML = ''; 
-
-            let rows, cols, rowGray, colGray;
-
-            if (state.vars === 2) {
-                rows = 2; cols = 2; rowGray = grayCodes[1]; colGray = grayCodes[1];
-            } else if (state.vars === 3) {
-                rows = 2; cols = 4; rowGray = grayCodes[1]; colGray = grayCodes[2];
-            } else { // 4
-                rows = 4; cols = 4; rowGray = grayCodes[2]; colGray = grayCodes[2];
-            }
+            wrapper.innerHTML = '';
+            
+            let rowsArr, colsArr;
+            if (state.vars === 2) { rowsArr=grayCodes[1]; colsArr=grayCodes[1]; }
+            else if (state.vars === 3) { rowsArr=grayCodes[1]; colsArr=grayCodes[2]; }
+            else { rowsArr=grayCodes[2]; colsArr=grayCodes[2]; }
 
             const table = document.createElement('table');
             table.className = 'kmap';
             
             const colVarShift = Math.ceil(state.vars / 2);
 
-            for (let r = 0; r < rows; r++) {
+            for (let r = 0; r < rowsArr.length; r++) {
                 const tr = document.createElement('tr');
-                for (let c = 0; c < cols; c++) {
+                for (let c = 0; c < colsArr.length; c++) {
                     const td = document.createElement('td');
-                    const index = (rowGray[r] << colVarShift) | colGray[c];
+                    const rowGray = rowsArr[r];
+                    const colGray = colsArr[c];
+                    const index = (rowGray << colVarShift) | colGray;
 
                     td.dataset.index = index;
-                    td.textContent = state.grid[index];
-                    td.dataset.val = state.grid[index];
-                    td.onclick = () => handleCellClick(index, td);
-                    
+                    td.innerText = state.mapGrid[index];
+                    td.dataset.val = state.mapGrid[index];
+                    td.onclick = () => handleMapClick(index);
+
                     if (state.selectedIndices.has(index)) td.classList.add('selected');
-
-                    const small = document.createElement('div');
-                    small.className = 'minterm-idx';
-                    small.textContent = index;
-                    td.appendChild(small);
-
+                    
                     const participatingGroups = state.groups.filter(g => g.indices.includes(index));
                     participatingGroups.forEach((group, i) => {
-                        const indicator = document.createElement('div');
-                        indicator.className = 'group-indicator';
-                        const offset = (i * 4) + 2; 
-                        indicator.style.inset = `${offset}px`;
-                        indicator.style.border = `2px solid ${group.color}`;
-                        td.appendChild(indicator);
+                        const ind = document.createElement('div');
+                        ind.className = 'group-indicator';
+                        const offset = (i * 4) + 2;
+                        ind.style.inset = `${offset}px`;
+                        ind.style.border = `2px solid ${group.color}`;
+                        td.appendChild(ind);
                     });
 
                     tr.appendChild(td);
@@ -426,472 +684,323 @@
                 table.appendChild(tr);
             }
             wrapper.appendChild(table);
-
-            // Coleman Lines
-            const cellSize = 62; 
-            const addLine = (label, isVertical, startSlot, lengthSlots, offsetSlots) => {
-                const line = document.createElement('div');
-                line.className = `var-line ${isVertical ? 'line-vertical' : 'line-horizontal'}`;
-                const labelSpan = document.createElement('span');
-                labelSpan.className = 'line-label';
-                labelSpan.textContent = label;
-                line.appendChild(labelSpan);
-                const marginBase = 5; const spacing = 15;
-                if (isVertical) {
-                    line.style.height = (lengthSlots * cellSize) + 'px';
-                    line.style.top = (startSlot * cellSize) + 40 + 'px';
-                    line.style.left = (40 - marginBase - (offsetSlots * spacing)) + 'px';
-                } else {
-                    line.style.width = (lengthSlots * cellSize) + 'px';
-                    line.style.left = (startSlot * cellSize) + 40 + 'px';
-                    line.style.top = (40 - marginBase - (offsetSlots * spacing)) + 'px';
-                }
-                wrapper.appendChild(line);
-            };
-
-            if(state.vars === 2) { addLine('A', true, 1, 1, 1); addLine('B', false, 1, 1, 1); }
-            else if (state.vars === 3) { addLine('A', true, 1, 1, 1); addLine('B', false, 2, 2, 2); addLine('C', false, 1, 2, 1); }
-            else if (state.vars === 4) { addLine('A', true, 2, 2, 2); addLine('B', true, 1, 2, 1); addLine('C', false, 2, 2, 2); addLine('D', false, 1, 2, 1); }
+            drawColemanLines(wrapper);
         }
 
-        // --- INTERACTION ---
+        function handleMapClick(index) {
+            if (!state.isTableCorrect) return; 
+            if (state.animState) return; 
 
-        function handleCellClick(index) {
-            if (state.mode === 'edit') {
-                state.grid[index] = state.grid[index] === 1 ? 0 : 1;
+            if (!state.isMapCorrect) {
+                state.mapGrid[index] = state.mapGrid[index] === 1 ? 0 : 1;
                 renderMap();
-            } else if (state.mode === 'group') {
+            } else {
                 const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+                if (state.mapGrid[index] !== targetVal) return;
                 
-                if (state.grid[index] !== targetVal) {
-                    showError(`V režimu ${state.solveMode === 'minterm' ? 'mintermů' : 'maxtermů'} lze vybírat pouze ${targetVal}!`);
-                    return;
-                }
                 if (state.selectedIndices.has(index)) state.selectedIndices.delete(index);
                 else state.selectedIndices.add(index);
                 renderMap();
-                document.getElementById('groupError').style.display = 'none';
             }
         }
 
-        function lockMapAndStartGrouping() {
-            state.solveMode = document.getElementById('solveModeSelect').value;
-            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
-            
-            if (!state.grid.includes(targetVal)) {
-                alert(`Mapa neobsahuje žádné ${targetVal}. Nelze vytvářet skupiny.`);
-                return;
+        function checkMapAndUnlock() {
+            let correct = true;
+            for(let i=0; i<state.mapGrid.length; i++) {
+                if(state.mapGrid[i] !== state.tableValues[i]) correct = false;
             }
 
-            state.mode = 'group';
-            document.getElementById('step1').style.display = 'none';
-            document.getElementById('step2').style.display = 'block';
-            document.getElementById('varCountSelect').disabled = true;
-            document.getElementById('solveModeSelect').disabled = true;
-            
-            // Update instructions
-            const instText = state.solveMode === 'minterm' 
-                ? "1. Označ jedničky. 2. Vytvoř maximální skupinu. 3. Urči proměnné (SOP)."
-                : "1. Označ nuly. 2. Vytvoř maximální skupinu. 3. Urči proměnné (POS - Maxtermy).";
-            document.getElementById('step2Inst').innerText = instText;
+            const msg = document.getElementById('mapMsg');
+            msg.style.display = 'block';
+            if (correct) {
+                msg.className = 'status-msg success-text';
+                msg.innerText = "Správně! Odemykám minimalizaci.";
+                state.isMapCorrect = true;
+                
+                document.getElementById('solvePanel').style.opacity = '1';
+                document.getElementById('solvePanel').style.pointerEvents = 'auto';
+                document.getElementById('btnCheckMap').disabled = true;
+                
+                const target = state.solveMode === 'minterm' ? 'jedničky' : 'nuly';
+                document.getElementById('solveInst').innerText = `1. Označ ${target}. 2. Vytvoř skupinu. 3. Urči proměnné.`;
 
-            renderMap();
+            } else {
+                msg.className = 'status-msg error-text';
+                msg.innerText = "Mapa neodpovídá tabulce! Použij ikonu oka v tabulce pro nápovědu.";
+            }
         }
 
-        function backToEdit() {
-            state.mode = 'edit';
-            state.selectedIndices.clear();
-            state.groups = [];
-            state.nextColorIndex = 0;
-            document.getElementById('step1').style.display = 'block';
-            document.getElementById('step2').style.display = 'none';
-            document.getElementById('varCountSelect').disabled = false;
-            document.getElementById('solveModeSelect').disabled = false;
-            // Clear lists without full reset
-            document.getElementById('groupsList').innerHTML = '';
-            document.getElementById('groupError').style.display = 'none';
-            document.getElementById('finalStatus').style.display = 'none';
-            document.getElementById('finalEquationDisplay').innerText = 'Y = ...';
-            renderMap();
-        }
-
-        function clearSelection() {
-            state.selectedIndices.clear();
-            renderMap();
-        }
-
+        // --- STEP 3: SOLVER ---
         function createGroupFromSelection() {
-            const indices = Array.from(state.selectedIndices).sort((a,b) => a-b);
+            const indices = Array.from(state.selectedIndices).sort((a,b)=>a-b);
+            if (indices.length === 0) return;
             
-            if (indices.length === 0) { showError("Nic není vybráno."); return; }
+            if (!isPowerOf2(indices.length)) { showErr("Neplatná velikost."); return; }
+            if (!isValidShape(indices)) { showErr("Neplatný tvar."); return; }
+            if (state.groups.some(g => arraysEqual(g.indices, indices))) { showErr("Duplicitní skupina."); return; }
+            if (!isGroupMaximal(indices)) { showErr("Skupina není maximální."); return; }
 
-            // 1. Basic Shape Validation
-            const isPowerOf2 = (n) => (n & (n - 1)) === 0;
-            if (!isPowerOf2(indices.length)) {
-                showError(`Neplatná velikost: ${indices.length}. Musí být mocnina 2.`);
-                return;
+            const covered = new Set();
+            state.groups.forEach(g => g.indices.forEach(i => covered.add(i)));
+            if (!indices.some(i => !covered.has(i)) && state.groups.length > 0) {
+                 showErr("Zbytečná skupina."); return;
             }
 
-            if (!isValidKMapGroup(indices)) {
-                showError("Neplatný tvar! Buňky musí tvořit obdélník.");
-                return;
-            }
-
-            // 2. Duplicity Check
-            const isDuplicate = state.groups.some(g => {
-                if (g.indices.length !== indices.length) return false;
-                const gSort = [...g.indices].sort((a,b) => a-b);
-                return gSort.every((val, idx) => val === indices[idx]);
-            });
-
-            if (isDuplicate) { showError("Tato skupina již existuje!"); return; }
-
-            // 3. Maximality Check
-            if (!isGroupMaximal(indices)) {
-                showError("Pozor: Tato skupina není maximální! Lze ji zvětšit.");
-                return;
-            }
-            
-            // 4. Forward Redundancy
-            const coveredIndices = new Set();
-            state.groups.forEach(g => g.indices.forEach(idx => coveredIndices.add(idx)));
-            const contributesNewOne = indices.some(idx => !coveredIndices.has(idx));
-            
-            if (!contributesNewOne && state.groups.length > 0) {
-                 showError("Zbytečná skupina! Všechny označené buňky už jsou pokryty.");
-                 return;
-            }
-
-            // 5. Add Group
-            const groupColor = colors[state.nextColorIndex % colors.length];
-            state.nextColorIndex++;
-            
-            const varState = {}; 
-            getVarNames().forEach(v => varState[v] = 0); 
-
-            const newGroup = {
+            const group = {
                 id: Date.now(),
                 indices: indices,
-                color: groupColor,
-                vars: varState
+                color: colors[state.nextColorIndex % colors.length],
+                vars: {}
             };
-            state.groups.push(newGroup);
+            state.nextColorIndex++;
+            getVarNames().forEach(v => group.vars[v] = 0);
             
-            // 6. Backward Redundancy Notify
-            const redundantGroupsIndices = [];
+            state.groups.push(group);
+            
+            const redundantIds = [];
             state.groups.forEach((oldG, idx) => {
-                if (oldG.id === newGroup.id) return;
-                const others = state.groups.filter(g => g.id !== oldG.id);
-                const othersIndices = new Set();
-                others.forEach(o => o.indices.forEach(i => othersIndices.add(i)));
-                if (oldG.indices.every(index => othersIndices.has(index))) {
-                    redundantGroupsIndices.push(idx + 1);
-                }
+                 if (oldG.id === group.id) return;
+                 const others = state.groups.filter(g => g.id !== oldG.id);
+                 const othersCover = new Set();
+                 others.forEach(o => o.indices.forEach(i => othersCover.add(i)));
+                 if (oldG.indices.every(i => othersCover.has(i))) redundantIds.push(idx + 1);
             });
+            
+            if (redundantIds.length > 0) showErr(`Upozornění: Skupina ${redundantIds.join(', ')} je nyní zbytečná.`);
 
             state.selectedIndices.clear();
             renderMap();
-            refreshGroupList();
-            
-            if (redundantGroupsIndices.length > 0) {
-                showError(`Upozornění: Skupina ${redundantGroupsIndices.join(", ")} je nyní nadbytečná. Odstraň ji manuálně!`);
-            } else {
-                document.getElementById('groupError').style.display = 'none';
+            renderGroupsList();
+            updateEq();
+        }
+
+        function renderGroupsList() {
+            const ul = document.getElementById('groupsList');
+            ul.innerHTML = '';
+            state.groups.forEach((g, idx) => {
+                const li = document.createElement('li');
+                li.className = 'group-item';
+                li.style.borderLeftColor = g.color;
+                
+                let btns = '';
+                getVarNames().forEach(v => {
+                    const s = g.vars[v];
+                    let css = '', txt = '-';
+                    if (s===1) { css='s-1'; txt=v; }
+                    if (s===2) { css='s-0'; txt='!'+v; }
+                    btns += `<div class="var-btn ${css}" onclick="toggleVar(${g.id}, '${v}')"><span class="l">${v}</span><span class="v">${txt}</span></div>`;
+                });
+
+                li.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                        <strong style="color:${g.color}">Skupina ${idx+1}</strong>
+                        <button class="secondary" style="padding:2px 8px; font-size:0.7rem;" onclick="removeGroup(${g.id})">SMAZAT</button>
+                    </div>
+                    <div class="var-toggles">${btns}</div>
+                `;
+                ul.appendChild(li);
+            });
+        }
+
+        function toggleVar(gid, v) {
+            const g = state.groups.find(x => x.id === gid);
+            if(g) {
+                g.vars[v] = (g.vars[v] + 1) % 3;
+                renderGroupsList();
+                updateEq();
             }
-            updateFinalEquationDisplay();
+        }
+        
+        function removeGroup(gid) {
+            state.groups = state.groups.filter(x => x.id !== gid);
+            renderMap();
+            renderGroupsList();
+            updateEq();
         }
 
-        function refreshGroupList() {
-            const list = document.getElementById('groupsList');
-            list.innerHTML = '';
-            state.groups.forEach(addGroupToList);
+        function updateEq() {
+            const terms = state.groups.map(g => {
+                const parts = [];
+                getVarNames().forEach(v => {
+                    if (g.vars[v]===1) parts.push(v);
+                    if (g.vars[v]===2) parts.push("!"+v);
+                });
+                if (parts.length===0) return state.solveMode === 'minterm' ? "1" : "0";
+                if (state.solveMode === 'minterm') return parts.join("");
+                else return "(" + parts.join("+") + ")";
+            });
+            const joiner = state.solveMode === 'minterm' ? " + " : "";
+            document.getElementById('finalEquation').innerText = "Y = " + (terms.length ? terms.join(joiner) : "...");
         }
 
-        function isValidKMapGroup(indices) {
-            if (indices.length === 1) return true;
-            let combinedAnd = indices[0];
-            let combinedOr = indices[0];
-            indices.forEach(idx => { combinedAnd &= idx; combinedOr |= idx; });
-            const diff = combinedAnd ^ combinedOr; 
+        function checkFinalResult() {
+            const status = document.getElementById('finalStatus');
+            status.style.display = 'block';
             
-            let changingBits = 0;
-            let t = diff;
-            while(t > 0) { if(t&1) changingBits++; t>>=1; }
-            if (changingBits !== Math.log2(indices.length)) return false;
-
-            const constantPart = indices[0] & (~diff);
-            return indices.every(idx => (idx & (~diff)) === constantPart);
-        }
-
-        function isGroupMaximal(indices) {
-            // Updated to check against current solveMode target (0 or 1)
             const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            const targets = [];
+            state.mapGrid.forEach((v,i) => { if(v===targetVal) targets.push(i); });
+            const covered = new Set();
+            state.groups.forEach(g => g.indices.forEach(i => covered.add(i)));
             
-            let combinedAnd = indices[0];
-            let combinedOr = indices[0];
-            indices.forEach(idx => { combinedAnd &= idx; combinedOr |= idx; });
-            const diff = combinedAnd ^ combinedOr; 
-            const constantMask = ~diff; 
+            const missing = targets.filter(i => !covered.has(i));
+            if (missing.length > 0) {
+                status.className = 'status-msg error-text';
+                status.innerText = `Chyba pokrytí.`;
+                return;
+            }
 
-            for (let i = 0; i < state.vars; i++) {
-                const bitMask = 1 << i;
-                if ((constantMask & bitMask) !== 0) {
-                    const partnerIndices = indices.map(idx => idx ^ bitMask);
-                    const allTargets = partnerIndices.every(idx => state.grid[idx] === targetVal);
-                    if (allTargets) return false; 
+            const redundantIds = [];
+            state.groups.forEach((oldG, idx) => {
+                 const others = state.groups.filter(g => g.id !== oldG.id);
+                 const othersCover = new Set();
+                 others.forEach(o => o.indices.forEach(i => othersCover.add(i)));
+                 if (oldG.indices.every(i => othersCover.has(i))) redundantIds.push(idx + 1);
+            });
+            if (redundantIds.length > 0) {
+                status.className = 'status-msg error-text';
+                status.innerText = `Chyba: Zbytečné skupiny (${redundantIds.join(', ')}).`;
+                return;
+            }
+
+            let err = null;
+            state.groups.forEach((g, idx) => {
+                if (err) return;
+                const logic = getLogic(g.indices); 
+                const user = g.vars;
+                
+                const userSelected = getVarNames().filter(v => user[v] !== 0);
+                const logicSelected = Object.keys(logic);
+                
+                if (!arraysEqual(userSelected.sort(), logicSelected.sort())) {
+                    err = `Skupina ${idx+1}: Špatně zvolené proměnné.`; return;
+                }
+
+                logicSelected.forEach(v => {
+                    const realBit = logic[v]; 
+                    const userState = user[v]; 
+                    let correctState;
+                    if (state.solveMode === 'minterm') correctState = (realBit === 1) ? 1 : 2;
+                    else correctState = (realBit === 0) ? 1 : 2; 
+                    if (userState !== correctState) err = `Skupina ${idx+1}: Chyba v negaci (${v}).`;
+                });
+            });
+
+            if (err) {
+                status.className = 'status-msg error-text';
+                status.innerText = err;
+            } else {
+                status.className = 'status-msg success-text';
+                status.innerText = "VÝBORNĚ! Vše je správně.";
+            }
+        }
+        
+        function showSmartHint() {
+            const box = document.getElementById('hintBox');
+            box.style.display = 'block';
+            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            const targets = [];
+            state.mapGrid.forEach((v,i) => { if(v===targetVal) targets.push(i); });
+            const covered = new Set();
+            state.groups.forEach(g => g.indices.forEach(i => covered.add(i)));
+            const missing = targets.find(i => !covered.has(i));
+            
+            if (missing !== undefined) {
+                 box.innerText = `Buňka (index ${missing}) není pokryta.`;
+                 const cell = document.querySelector(`td[data-index="${missing}"]`);
+                 if(cell) { cell.classList.add('target-pulse'); setTimeout(()=>cell.classList.remove('target-pulse'), 2000); }
+                 return;
+            }
+            box.innerText = "Vše pokryto. Zkontroluj proměnné.";
+        }
+
+        // --- UTILS ---
+        function getVarNames() {
+            if (state.vars === 2) return ['A','B'];
+            if (state.vars === 3) return ['A','B','C'];
+            return ['A','B','C','D'];
+        }
+        function isPowerOf2(n) { return (n & (n-1)) === 0; }
+        function arraysEqual(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
+        function showErr(msg) { const el = document.getElementById('groupError'); el.innerText = msg; el.style.display='block'; setTimeout(() => el.style.display='none', 4000); }
+        function hideMsgs() {
+            document.getElementById('tableMsg').style.display='none';
+            document.getElementById('mapMsg').style.display='none';
+            document.getElementById('finalStatus').style.display='none';
+        }
+        
+        function isValidShape(indices) {
+            if (indices.length===1) return true;
+            let and=indices[0], or=indices[0];
+            indices.forEach(i => { and&=i; or|=i; });
+            const diff = and ^ or;
+            let bits = 0; let t=diff; while(t>0){ if(t&1)bits++; t>>=1; }
+            if (bits !== Math.log2(indices.length)) return false;
+            const constant = indices[0] & (~diff);
+            return indices.every(i => (i & (~diff)) === constant);
+        }
+        
+        function isGroupMaximal(indices) {
+            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            let and=indices[0], or=indices[0];
+            indices.forEach(i => { and&=i; or|=i; });
+            const diff = and ^ or;
+            const constMask = ~diff;
+            for(let i=0; i<state.vars; i++) {
+                const bit = 1 << i;
+                if ((constMask & bit) !== 0) {
+                    const partner = indices.map(idx => idx ^ bit);
+                    if (partner.every(idx => state.mapGrid[idx] === targetVal)) return false;
                 }
             }
             return true;
         }
 
-        function getVarNames() {
-            if (state.vars === 2) return ['A', 'B'];
-            if (state.vars === 3) return ['A', 'B', 'C'];
-            return ['A', 'B', 'C', 'D'];
-        }
-
-        function addGroupToList(group) {
-            const list = document.getElementById('groupsList');
-            const li = document.createElement('li');
-            li.className = 'group-item';
-            li.style.borderLeftColor = group.color;
-            li.id = `group-li-${group.id}`;
-
-            const varNames = getVarNames();
-            let buttonsHtml = '';
-            
-            varNames.forEach(v => {
-                buttonsHtml += `
-                    <div class="var-btn state-ignore" onclick="toggleVar(${group.id}, '${v}', this)">
-                        <span class="label">${v}</span>
-                        <span class="val">-</span>
-                    </div>
-                `;
-            });
-
-            // Restore visual state based on data
-            // This is handled better by fully regenerating innerHTML above, 
-            // but we need to set classes correctly after render.
-            // Simplified: The toggle logic updates data. 
-            // We just render raw. We need a way to restore visual state from group.vars
-            // Let's modify the generation loop above:
-            
-            buttonsHtml = '';
-            varNames.forEach(v => {
-                const s = group.vars[v];
-                let css = 'state-ignore';
-                let txt = '-';
-                if (s === 1) { css = 'state-1'; txt = v; }
-                if (s === 2) { css = 'state-0'; txt = '!' + v; }
-                
-                buttonsHtml += `
-                    <div class="var-btn ${css}" onclick="toggleVar(${group.id}, '${v}', this)">
-                        <span class="label">${v}</span>
-                        <span class="val">${txt}</span>
-                    </div>
-                `;
-            });
-
-            li.innerHTML = `
-                <div class="group-header">
-                    <span style="font-weight:bold; color:${group.color}">Skupina ${state.groups.indexOf(group)+1} <small>(${group.indices.length} buněk)</small></span>
-                    <button class="secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="removeGroup(${group.id})">❌</button>
-                </div>
-                <div style="font-size:0.85rem; color:#aaa; margin-bottom:5px;">Urči proměnné:</div>
-                <div class="var-toggles">
-                    ${buttonsHtml}
-                </div>
-            `;
-            list.appendChild(li);
-        }
-
-        function toggleVar(groupId, varName, btnEl) {
-            const group = state.groups.find(g => g.id === groupId);
-            if (!group) return;
-
-            let currentState = group.vars[varName];
-            let newState = (currentState + 1) % 3;
-            group.vars[varName] = newState;
-
-            btnEl.className = 'var-btn';
-            const valSpan = btnEl.querySelector('.val');
-
-            if (newState === 0) {
-                btnEl.classList.add('state-ignore');
-                valSpan.textContent = '-';
-            } else if (newState === 1) {
-                btnEl.classList.add('state-1');
-                valSpan.textContent = varName; 
-            } else {
-                btnEl.classList.add('state-0');
-                valSpan.textContent = '!' + varName; 
+        function getLogic(indices) {
+            let and=indices[0], or=indices[0];
+            indices.forEach(i => { and&=i; or|=i; });
+            const diff = and ^ or;
+            const logic = {};
+            const names = getVarNames();
+            for(let i=0; i<state.vars; i++) {
+                const bit = 1 << (state.vars - 1 - i); 
+                if ((diff & bit) === 0) {
+                    const val = (indices[0] & bit) !== 0 ? 1 : 0;
+                    logic[names[i]] = val;
+                }
             }
-            updateFinalEquationDisplay();
+            return logic;
         }
 
-        function removeGroup(id) {
-            state.groups = state.groups.filter(g => g.id !== id);
-            renderMap();
-            refreshGroupList();
-            updateFinalEquationDisplay();
-        }
-
-        function showError(msg) {
-            const el = document.getElementById('groupError');
-            el.innerText = msg;
-            el.style.display = 'block';
-            setTimeout(() => el.style.display = 'none', 6000);
-        }
-
-        // --- SOLVER ---
-
-        function generateUserTerm(group) {
-            const parts = [];
-            const vars = getVarNames();
-            vars.forEach(v => {
-                const s = group.vars[v];
-                if (s === 1) parts.push(v);       // A
-                if (s === 2) parts.push("!" + v); // !A
-            });
-            
-            if (parts.length === 0) return state.solveMode === 'minterm' ? "1" : "0"; 
-
-            if (state.solveMode === 'minterm') {
-                return parts.join(""); // AND implies concat
-            } else {
-                // Maxterm: (A + !B + C)
-                return "(" + parts.join("+") + ")";
-            }
-        }
-
-        function updateFinalEquationDisplay() {
-            const terms = state.groups.map(g => {
-                const allDash = Object.values(g.vars).every(v => v === 0);
-                if (allDash && g.indices.length < Math.pow(2, state.vars)) return "?"; 
-                return generateUserTerm(g);
-            });
-            
-            const joiner = state.solveMode === 'minterm' ? " + " : "";
-            document.getElementById('finalEquationDisplay').innerText = "Y = " + (terms.length ? terms.join(joiner) : "...");
-        }
-
-        function checkFinalResult() {
-            const allTargets = [];
-            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
-            
-            state.grid.forEach((val, idx) => { if(val===targetVal) allTargets.push(idx); });
-            const coveredIndices = new Set();
-            
-            state.groups.forEach(g => g.indices.forEach(idx => coveredIndices.add(idx)));
-            const missing = allTargets.filter(x => !coveredIndices.has(x));
-
-            const statusEl = document.getElementById('finalStatus');
-            statusEl.style.display = 'block';
-
-            if (missing.length > 0) {
-                statusEl.className = "status-msg error-text";
-                statusEl.innerHTML = `<strong>Chyba pokrytí:</strong> Chybí ${targetVal === 1 ? 'jedničky' : 'nuly'} (např. buňka ${missing[0]}).`;
-                return;
-            }
-
-            // Redundancy Check
-            const redundantGroups = [];
-            state.groups.forEach(g => {
-                const myIndices = g.indices;
-                const otherIndices = new Set();
-                state.groups.forEach(other => {
-                    if (other.id !== g.id) other.indices.forEach(idx => otherIndices.add(idx));
-                });
-                if (myIndices.every(idx => otherIndices.has(idx))) redundantGroups.push(state.groups.indexOf(g) + 1);
-            });
-
-            if (redundantGroups.length > 0) {
-                statusEl.className = "status-msg error-text";
-                statusEl.innerHTML = `<strong>Chyba efektivity:</strong> Skupina ${redundantGroups.join(", ")} je zbytečná. Cílem je minimální počet skupin!`;
-                return;
-            }
-
-            // Term Logic Check - Two Phase
-            let allCorrect = true;
-            let feedback = [];
-            
-            state.groups.forEach((group, idx) => {
-                const logic = getGroupLogic(group.indices);
-                const userVars = group.vars;
-                
-                // 1. Check correct vars selected
-                const correctVars = new Set(logic.involvedVars);
-                const selectedVars = new Set();
-                getVarNames().forEach(v => { if (userVars[v] !== 0) selectedVars.add(v); });
-                
-                const areVarsCorrect = (correctVars.size === selectedVars.size) && [...correctVars].every(v => selectedVars.has(v));
-                
-                if (!areVarsCorrect) {
-                    allCorrect = false;
-                    feedback.push(`Skupina ${idx+1}: Nesprávně zvolené proměnné.`);
+        function drawColemanLines(wrapper) {
+            const cellSize = 60; // Same as CSS
+            const addLine = (label, isVert, start, len, off) => {
+                const l = document.createElement('div');
+                l.className = `var-line ${isVert?'line-vertical':'line-horizontal'}`;
+                const s = document.createElement('span'); s.className='line-label'; s.innerText=label; l.appendChild(s);
+                const mg=5; const sp=15;
+                if (isVert) {
+                    l.style.height=(len*cellSize)+'px'; 
+                    // 40 padding top. 
+                    l.style.top=(start*cellSize)+40+'px';
+                    // 40 padding left. Move left.
+                    l.style.left= (40 - mg - (off*sp)) + 'px'; 
                 } else {
-                    // 2. Check negations
-                    let negationsCorrect = true;
-                    logic.involvedVars.forEach(v => {
-                        const correctBit = logic.values[v]; // 1 if constant 1, 0 if constant 0
-                        const userSelection = userVars[v]; // 1 (Positive Literal) or 2 (Negative Literal)
-                        
-                        // Minterm (SOP): Map=1 -> Positive(A). Map=0 -> Negative(!A).
-                        // Maxterm (POS): Map=0 -> Positive(A). Map=1 -> Negative(!A).
-                        
-                        let expectedSelection;
-                        if (state.solveMode === 'minterm') {
-                            expectedSelection = (correctBit === 1) ? 1 : 2;
-                        } else {
-                            expectedSelection = (correctBit === 0) ? 1 : 2;
-                        }
-
-                        if (userSelection !== expectedSelection) negationsCorrect = false;
-                    });
-                    
-                    if (!negationsCorrect) {
-                        allCorrect = false;
-                        feedback.push(`Skupina ${idx+1}: Proměnné sedí, ale máš chybu v negacích.`);
-                    }
+                    l.style.width=(len*cellSize)+'px'; 
+                    l.style.left=(start*cellSize)+40+'px'; 
+                    // Move top.
+                    l.style.top= (40 - mg - (off*sp)) + 'px';
                 }
-            });
-
-            if (allCorrect) {
-                statusEl.className = "status-msg success-text";
-                statusEl.innerHTML = "<strong>Výborně!</strong> Vše je správně a optimálně minimalizováno.";
-            } else {
-                statusEl.className = "status-msg error-text";
-                statusEl.innerHTML = feedback.join("<br>");
-            }
-        }
-        
-        function getGroupLogic(indices) {
-            if (indices.length === 0) return { involvedVars: [], values: {} };
+                wrapper.appendChild(l);
+            };
             
-            let combinedAnd = indices[0];
-            let combinedOr = indices[0];
-            indices.forEach(idx => { combinedAnd &= idx; combinedOr |= idx; });
-            const diff = combinedAnd ^ combinedOr; 
-            
-            const involvedVars = [];
-            const values = {};
-            const varNames = getVarNames();
-            
-            for (let i = 0; i < state.vars; i++) {
-                const bitPos = state.vars - 1 - i;
-                if ((diff & (1 << bitPos)) === 0) {
-                    const vName = varNames[i];
-                    involvedVars.push(vName);
-                    // Check value in first index (is the variable constantly 1 or 0?)
-                    const isOne = (indices[0] & (1 << bitPos)) !== 0;
-                    values[vName] = isOne ? 1 : 0;
-                }
-            }
-            return { involvedVars, values };
+            // Standard positioning relative to padding
+            if(state.vars===2) { addLine('A',1,1,1,1); addLine('B',0,1,1,1); }
+            else if(state.vars===3) { addLine('A',1,1,1,1); addLine('B',0,2,2,2); addLine('C',0,1,2,1); }
+            else { addLine('A',1,2,2,2); addLine('B',1,1,2,1); addLine('C',0,2,2,2); addLine('D',0,1,2,1); }
         }
 
-        window.onload = initApp;
+        window.onload = resetApp;
     </script>
 </body>
 </html>
-
