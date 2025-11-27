@@ -995,7 +995,7 @@
                 }
             }
             
-            box.innerText = "Vše pokryto. Zkontroluj proměnné.";
+            box.innerHTML = `<strong>Vše vypadá skvěle!</strong> Zdá se, že máš vše pokryto a správně určené. Zkus finální kontrolu.`;
         }
 
         // --- UTILS ---
@@ -1057,7 +1057,7 @@
                 if ((diff & (1 << bitPos)) === 0) {
                     const vName = varNames[i];
                     involvedVars.push(vName);
-                    // Check value in first index
+                    // Check value in first index (is the variable constantly 1 or 0?)
                     const isOne = (indices[0] & (1 << bitPos)) !== 0;
                     values[vName] = isOne ? 1 : 0;
                 }
