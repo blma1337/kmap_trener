@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Karnaughova Mapa - Interaktivní Trenér</title>
+    <style>
+        :root {
+            /* Warm Theme Palette */
+            --bg-color: #1a1a1a;
+            --panel-bg: #262626;
+            --text-color: #eee;
+            --accent: #FF7043; /* Deep Orange */
+            --accent-hover: #D84315;
+            --secondary-btn: #5d4037; /* Brownish */
+            --error: #ef5350;
+            --success: #66bb6a;
+            
+            --grid-border: #444;
+            --cell-size: 60px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1, h2, h3 { margin: 0 0 15px 0; color: var(--accent); }
+        
+        /* Layout */
+        .main-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 40px;
+            justify-content: center;
+            width: 100%;
+            max-width: 1250px;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            flex: 1;
+            min-width: 350px;
+            border-top: 4px solid var(--accent);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background-color: var(--accent);
+            color: #000;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.9rem;
+        }
+
+        button:hover { background-color: var(--accent-hover); color: white; }
+        button.secondary { background-color: var(--secondary-btn); color: #ddd; }
+        button.secondary:hover { background-color: #4e342e; }
+        button.success { background-color: var(--success); color: white; }
+        
+        select {
+            padding: 10px;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+
+        /* K-Map Visualization Wrapper */
+        .map-wrapper {
+            position: relative;
+            padding: 40px; 
+            display: inline-block;
+            margin: 20px auto;
+            user-select: none;
+        }
+
+        /* The Grid Table */
+        table.kmap {
+            border-collapse: collapse;
+            margin: 0;
+            background: #1e1e1e;
+        }
+
+        td {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            border: 1px solid var(--grid-border);
+            text-align: center;
+            font-size: 1.5rem;
+            cursor: pointer;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Cell States */
+        td:hover { background-color: #333; }
+        td[data-val="1"] { color: white; font-weight: bold; }
+        td[data-val="0"] { color: #555; }
+        
+        td.selected {
+            background-color: rgba(255, 112, 67, 0.2);
+            box-shadow: inset 0 0 0 2px var(--accent);
+        }
+
+        /* Variable Indicator Lines */
+        .var-line {
+            position: absolute;
+            background-color: var(--text-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            font-weight: bold;
+            z-index: 10;
+        }
+
+        .line-horizontal { height: 2px; border-left: 2px solid var(--text-color); border-right: 2px solid var(--text-color); }
+        .line-vertical { width: 2px; border-top: 2px solid var(--text-color); border-bottom: 2px solid var(--text-color); }
+        .line-label { position: absolute; background: var(--bg-color); padding: 0 4px; }
+
+        /* Workflow Steps */
+        .workflow-step {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #444;
+            transition: opacity 0.3s;
+        }
+        
+        .instruction { color: #bbb; margin-bottom: 15px; font-style: italic; font-size: 0.95rem; }
+
+        /* Group List */
+        .group-list { list-style: none; padding: 0; margin-top: 15px; }
+        .group-item {
+            background: #333;
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 6px solid gray;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #444;
+            padding-bottom: 8px;
+        }
+
+        /* Variable Toggles Container */
+        .var-toggles {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        /* Custom Toggle Button */
+        .var-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 44px; /* Slightly wider for !A */
+            height: 44px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background: #222;
+            cursor: pointer;
+            font-family: monospace;
+            font-weight: bold;
+            transition: 0.2s;
+            user-select: none;
+        }
+        
+        .var-btn span.label { font-size: 0.7rem; color: #888; margin-bottom: 2px; }
+        .var-btn span.val { font-size: 1.1rem; color: #ddd; }
+
+        /* Toggle States */
+        .var-btn.state-ignore { background: #2a2a2a; border-color: #444; }
+        .var-btn.state-ignore span.val { color: #666; } /* Dash */
+        
+        .var-btn.state-1 { background: rgba(76, 175, 80, 0.2); border-color: #4caf50; }
+        .var-btn.state-1 span.val { color: #4caf50; } /* A (Normal) */
+        
+        .var-btn.state-0 { background: rgba(244, 67, 54, 0.2); border-color: #f44336; }
+        .var-btn.state-0 span.val { color: #f44336; } /* !A (Negated) */
+
+        .status-msg {
+            margin-top: 5px;
+            font-size: 0.9rem;
+            min-height: 1.2em;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .error-text { color: #ffab91; background: rgba(255, 0, 0, 0.1); }
+        .success-text { color: #a5d6a7; background: rgba(0, 255, 0, 0.1); }
+
+        .minterm-idx {
+            position: absolute;
+            bottom: 2px; right: 2px;
+            font-size: 0.6rem; color: #666;
+            pointer-events: none;
+        }
+
+        .group-indicator {
+            position: absolute; pointer-events: none;
+            border-radius: 4px;
+            box-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+
+        .mode-toggle {
+            background: #333;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            border: 1px solid #555;
+        }
+
+        @keyframes fadeIn { from { opacity:0; transform: translateY(5px); } to { opacity:1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <h1>Trenér Minimalizace Karnaughových Map</h1>
+
+    <div class="controls">
+        <label>Počet proměnných:</label>
+        <select id="varCountSelect" onchange="initApp()">
+            <option value="2">2 (A, B)</option>
+            <option value="3">3 (A, B, C)</option>
+            <option value="4" selected>4 (A, B, C, D)</option>
+        </select>
+        <button onclick="randomizeMap()">🎲 Generovat náhodně</button>
+        <button class="secondary" onclick="clearMap()">🗑️ Vymazat</button>
+    </div>
+
+    <div class="main-container">
+        <!-- LEFT: Map Visualization -->
+        <div class="panel" style="flex: 0 0 auto; display: flex; justify-content: center; align-items: center; min-width: 400px;">
+            <div id="mapContainer" class="map-wrapper"></div>
+        </div>
+
+        <!-- RIGHT: Interactive Process -->
+        <div class="panel">
+            <h2>Postup Výpočtu</h2>
+            
+            <!-- Step 1: Definition -->
+            <div class="workflow-step" id="step1">
+                <h3>1. Definice mapy</h3>
+                <p class="instruction">Klikáním do mapy nastav 1 nebo 0. Poté zvol, co budeme minimalizovat.</p>
+                
+                <div class="mode-toggle">
+                    <label style="display:block; margin-bottom:5px; font-size:0.9rem; color:#aaa;">Co hledáme?</label>
+                    <select id="solveModeSelect" style="width:100%">
+                        <option value="minterm">Mintermy (Shlukování jedniček) &rarr; Součtový tvar</option>
+                        <option value="maxterm">Maxtermy (Shlukování nul) &rarr; Součinový tvar</option>
+                    </select>
+                </div>
+
+                <button onclick="lockMapAndStartGrouping()">✅ Mapa je hotová</button>
+            </div>
+
+            <!-- Step 2: Grouping & Solving -->
+            <div class="workflow-step" id="step2" style="display:none;">
+                <h3>2. Tvorba skupin a Výpočet</h3>
+                <p class="instruction" id="step2Inst">
+                    <!-- Text will be updated via JS based on mode -->
+                </p>
+                
+                <div style="display:flex; gap:10px; margin-bottom: 10px;">
+                    <button class="secondary" onclick="createGroupFromSelection()">➕ Vytvořit skupinu</button>
+                    <button class="secondary" onclick="clearSelection()" style="background:#444">Zrušit výběr</button>
+                </div>
+                
+                <p id="groupError" class="status-msg error-text" style="display:none"></p>
+
+                <ul id="groupsList" class="group-list"></ul>
+                
+                <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #444;">
+                    <div style="font-size: 1.2rem; font-family: monospace; background: #1a1a1a; padding: 15px; margin-bottom: 15px; border-left: 3px solid var(--accent); color: var(--accent);" id="finalEquationDisplay">
+                        Y = ...
+                    </div>
+                    <button class="success" onclick="checkFinalResult()">🏆 Zkontrolovat výsledek</button>
+                    <button class="secondary" onclick="backToEdit()" style="float:right; font-size:0.8rem">✏️ Zpět k editaci</button>
+                    <p id="finalStatus" class="status-msg" style="display:none"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- KONFIGURACE ---
+        const colors = [
+            '#FF5722', '#FFC107', '#8BC34A', '#E040FB', '#00BCD4', 
+            '#f44336', '#e91e63', '#3f51b5', '#009688', '#ffeb3b', '#cddc39'
+        ];
+        
+        let state = {
+            vars: 4,
+            grid: [],
+            mode: 'edit',
+            solveMode: 'minterm', // 'minterm' (1s) or 'maxterm' (0s)
+            selectedIndices: new Set(),
+            groups: [], 
+            nextColorIndex: 0 
+        };
+
+        const grayCodes = { 1: [0, 1], 2: [0, 1, 3, 2] };
+
+        function initApp() {
+            state.vars = parseInt(document.getElementById('varCountSelect').value);
+            state.grid = new Array(Math.pow(2, state.vars)).fill(0);
+            resetWorkflow();
+            renderMap();
+        }
+
+        function resetWorkflow() {
+            state.mode = 'edit';
+            state.selectedIndices.clear();
+            state.groups = [];
+            state.nextColorIndex = 0;
+            state.solveMode = 'minterm';
+            
+            document.getElementById('step1').style.display = 'block';
+            document.getElementById('step2').style.display = 'none';
+            document.getElementById('groupsList').innerHTML = '';
+            document.getElementById('groupError').style.display = 'none';
+            document.getElementById('finalStatus').style.display = 'none';
+            document.getElementById('finalEquationDisplay').innerText = 'Y = ...';
+            document.getElementById('varCountSelect').disabled = false;
+            document.getElementById('solveModeSelect').value = 'minterm';
+            document.getElementById('solveModeSelect').disabled = false;
+        }
+
+        function randomizeMap() {
+            resetWorkflow();
+            for(let i=0; i<state.grid.length; i++) state.grid[i] = Math.random() > 0.6 ? 1 : 0;
+            renderMap();
+        }
+
+        function clearMap() {
+            resetWorkflow();
+            state.grid.fill(0);
+            renderMap();
+        }
+
+        // --- VISUALIZATION ---
+        function renderMap() {
+            const wrapper = document.getElementById('mapContainer');
+            wrapper.innerHTML = ''; 
+
+            let rows, cols, rowGray, colGray;
+
+            if (state.vars === 2) {
+                rows = 2; cols = 2; rowGray = grayCodes[1]; colGray = grayCodes[1];
+            } else if (state.vars === 3) {
+                rows = 2; cols = 4; rowGray = grayCodes[1]; colGray = grayCodes[2];
+            } else { // 4
+                rows = 4; cols = 4; rowGray = grayCodes[2]; colGray = grayCodes[2];
+            }
+
+            const table = document.createElement('table');
+            table.className = 'kmap';
+            
+            const colVarShift = Math.ceil(state.vars / 2);
+
+            for (let r = 0; r < rows; r++) {
+                const tr = document.createElement('tr');
+                for (let c = 0; c < cols; c++) {
+                    const td = document.createElement('td');
+                    const index = (rowGray[r] << colVarShift) | colGray[c];
+
+                    td.dataset.index = index;
+                    td.textContent = state.grid[index];
+                    td.dataset.val = state.grid[index];
+                    td.onclick = () => handleCellClick(index, td);
+                    
+                    if (state.selectedIndices.has(index)) td.classList.add('selected');
+
+                    const small = document.createElement('div');
+                    small.className = 'minterm-idx';
+                    small.textContent = index;
+                    td.appendChild(small);
+
+                    const participatingGroups = state.groups.filter(g => g.indices.includes(index));
+                    participatingGroups.forEach((group, i) => {
+                        const indicator = document.createElement('div');
+                        indicator.className = 'group-indicator';
+                        const offset = (i * 4) + 2; 
+                        indicator.style.inset = `${offset}px`;
+                        indicator.style.border = `2px solid ${group.color}`;
+                        td.appendChild(indicator);
+                    });
+
+                    tr.appendChild(td);
+                }
+                table.appendChild(tr);
+            }
+            wrapper.appendChild(table);
+
+            // Coleman Lines
+            const cellSize = 62; 
+            const addLine = (label, isVertical, startSlot, lengthSlots, offsetSlots) => {
+                const line = document.createElement('div');
+                line.className = `var-line ${isVertical ? 'line-vertical' : 'line-horizontal'}`;
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'line-label';
+                labelSpan.textContent = label;
+                line.appendChild(labelSpan);
+                const marginBase = 5; const spacing = 15;
+                if (isVertical) {
+                    line.style.height = (lengthSlots * cellSize) + 'px';
+                    line.style.top = (startSlot * cellSize) + 40 + 'px';
+                    line.style.left = (40 - marginBase - (offsetSlots * spacing)) + 'px';
+                } else {
+                    line.style.width = (lengthSlots * cellSize) + 'px';
+                    line.style.left = (startSlot * cellSize) + 40 + 'px';
+                    line.style.top = (40 - marginBase - (offsetSlots * spacing)) + 'px';
+                }
+                wrapper.appendChild(line);
+            };
+
+            if(state.vars === 2) { addLine('A', true, 1, 1, 1); addLine('B', false, 1, 1, 1); }
+            else if (state.vars === 3) { addLine('A', true, 1, 1, 1); addLine('B', false, 2, 2, 2); addLine('C', false, 1, 2, 1); }
+            else if (state.vars === 4) { addLine('A', true, 2, 2, 2); addLine('B', true, 1, 2, 1); addLine('C', false, 2, 2, 2); addLine('D', false, 1, 2, 1); }
+        }
+
+        // --- INTERACTION ---
+
+        function handleCellClick(index) {
+            if (state.mode === 'edit') {
+                state.grid[index] = state.grid[index] === 1 ? 0 : 1;
+                renderMap();
+            } else if (state.mode === 'group') {
+                const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+                
+                if (state.grid[index] !== targetVal) {
+                    showError(`V režimu ${state.solveMode === 'minterm' ? 'mintermů' : 'maxtermů'} lze vybírat pouze ${targetVal}!`);
+                    return;
+                }
+                if (state.selectedIndices.has(index)) state.selectedIndices.delete(index);
+                else state.selectedIndices.add(index);
+                renderMap();
+                document.getElementById('groupError').style.display = 'none';
+            }
+        }
+
+        function lockMapAndStartGrouping() {
+            state.solveMode = document.getElementById('solveModeSelect').value;
+            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            
+            if (!state.grid.includes(targetVal)) {
+                alert(`Mapa neobsahuje žádné ${targetVal}. Nelze vytvářet skupiny.`);
+                return;
+            }
+
+            state.mode = 'group';
+            document.getElementById('step1').style.display = 'none';
+            document.getElementById('step2').style.display = 'block';
+            document.getElementById('varCountSelect').disabled = true;
+            document.getElementById('solveModeSelect').disabled = true;
+            
+            // Update instructions
+            const instText = state.solveMode === 'minterm' 
+                ? "1. Označ jedničky. 2. Vytvoř maximální skupinu. 3. Urči proměnné (SOP)."
+                : "1. Označ nuly. 2. Vytvoř maximální skupinu. 3. Urči proměnné (POS - Maxtermy).";
+            document.getElementById('step2Inst').innerText = instText;
+
+            renderMap();
+        }
+
+        function backToEdit() {
+            state.mode = 'edit';
+            state.selectedIndices.clear();
+            state.groups = [];
+            state.nextColorIndex = 0;
+            document.getElementById('step1').style.display = 'block';
+            document.getElementById('step2').style.display = 'none';
+            document.getElementById('varCountSelect').disabled = false;
+            document.getElementById('solveModeSelect').disabled = false;
+            // Clear lists without full reset
+            document.getElementById('groupsList').innerHTML = '';
+            document.getElementById('groupError').style.display = 'none';
+            document.getElementById('finalStatus').style.display = 'none';
+            document.getElementById('finalEquationDisplay').innerText = 'Y = ...';
+            renderMap();
+        }
+
+        function clearSelection() {
+            state.selectedIndices.clear();
+            renderMap();
+        }
+
+        function createGroupFromSelection() {
+            const indices = Array.from(state.selectedIndices).sort((a,b) => a-b);
+            
+            if (indices.length === 0) { showError("Nic není vybráno."); return; }
+
+            // 1. Basic Shape Validation
+            const isPowerOf2 = (n) => (n & (n - 1)) === 0;
+            if (!isPowerOf2(indices.length)) {
+                showError(`Neplatná velikost: ${indices.length}. Musí být mocnina 2.`);
+                return;
+            }
+
+            if (!isValidKMapGroup(indices)) {
+                showError("Neplatný tvar! Buňky musí tvořit obdélník.");
+                return;
+            }
+
+            // 2. Duplicity Check
+            const isDuplicate = state.groups.some(g => {
+                if (g.indices.length !== indices.length) return false;
+                const gSort = [...g.indices].sort((a,b) => a-b);
+                return gSort.every((val, idx) => val === indices[idx]);
+            });
+
+            if (isDuplicate) { showError("Tato skupina již existuje!"); return; }
+
+            // 3. Maximality Check
+            if (!isGroupMaximal(indices)) {
+                showError("Pozor: Tato skupina není maximální! Lze ji zvětšit.");
+                return;
+            }
+            
+            // 4. Forward Redundancy
+            const coveredIndices = new Set();
+            state.groups.forEach(g => g.indices.forEach(idx => coveredIndices.add(idx)));
+            const contributesNewOne = indices.some(idx => !coveredIndices.has(idx));
+            
+            if (!contributesNewOne && state.groups.length > 0) {
+                 showError("Zbytečná skupina! Všechny označené buňky už jsou pokryty.");
+                 return;
+            }
+
+            // 5. Add Group
+            const groupColor = colors[state.nextColorIndex % colors.length];
+            state.nextColorIndex++;
+            
+            const varState = {}; 
+            getVarNames().forEach(v => varState[v] = 0); 
+
+            const newGroup = {
+                id: Date.now(),
+                indices: indices,
+                color: groupColor,
+                vars: varState
+            };
+            state.groups.push(newGroup);
+            
+            // 6. Backward Redundancy Notify
+            const redundantGroupsIndices = [];
+            state.groups.forEach((oldG, idx) => {
+                if (oldG.id === newGroup.id) return;
+                const others = state.groups.filter(g => g.id !== oldG.id);
+                const othersIndices = new Set();
+                others.forEach(o => o.indices.forEach(i => othersIndices.add(i)));
+                if (oldG.indices.every(index => othersIndices.has(index))) {
+                    redundantGroupsIndices.push(idx + 1);
+                }
+            });
+
+            state.selectedIndices.clear();
+            renderMap();
+            refreshGroupList();
+            
+            if (redundantGroupsIndices.length > 0) {
+                showError(`Upozornění: Skupina ${redundantGroupsIndices.join(", ")} je nyní nadbytečná. Odstraň ji manuálně!`);
+            } else {
+                document.getElementById('groupError').style.display = 'none';
+            }
+            updateFinalEquationDisplay();
+        }
+
+        function refreshGroupList() {
+            const list = document.getElementById('groupsList');
+            list.innerHTML = '';
+            state.groups.forEach(addGroupToList);
+        }
+
+        function isValidKMapGroup(indices) {
+            if (indices.length === 1) return true;
+            let combinedAnd = indices[0];
+            let combinedOr = indices[0];
+            indices.forEach(idx => { combinedAnd &= idx; combinedOr |= idx; });
+            const diff = combinedAnd ^ combinedOr; 
+            
+            let changingBits = 0;
+            let t = diff;
+            while(t > 0) { if(t&1) changingBits++; t>>=1; }
+            if (changingBits !== Math.log2(indices.length)) return false;
+
+            const constantPart = indices[0] & (~diff);
+            return indices.every(idx => (idx & (~diff)) === constantPart);
+        }
+
+        function isGroupMaximal(indices) {
+            // Updated to check against current solveMode target (0 or 1)
+            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            
+            let combinedAnd = indices[0];
+            let combinedOr = indices[0];
+            indices.forEach(idx => { combinedAnd &= idx; combinedOr |= idx; });
+            const diff = combinedAnd ^ combinedOr; 
+            const constantMask = ~diff; 
+
+            for (let i = 0; i < state.vars; i++) {
+                const bitMask = 1 << i;
+                if ((constantMask & bitMask) !== 0) {
+                    const partnerIndices = indices.map(idx => idx ^ bitMask);
+                    const allTargets = partnerIndices.every(idx => state.grid[idx] === targetVal);
+                    if (allTargets) return false; 
+                }
+            }
+            return true;
+        }
+
+        function getVarNames() {
+            if (state.vars === 2) return ['A', 'B'];
+            if (state.vars === 3) return ['A', 'B', 'C'];
+            return ['A', 'B', 'C', 'D'];
+        }
+
+        function addGroupToList(group) {
+            const list = document.getElementById('groupsList');
+            const li = document.createElement('li');
+            li.className = 'group-item';
+            li.style.borderLeftColor = group.color;
+            li.id = `group-li-${group.id}`;
+
+            const varNames = getVarNames();
+            let buttonsHtml = '';
+            
+            varNames.forEach(v => {
+                buttonsHtml += `
+                    <div class="var-btn state-ignore" onclick="toggleVar(${group.id}, '${v}', this)">
+                        <span class="label">${v}</span>
+                        <span class="val">-</span>
+                    </div>
+                `;
+            });
+
+            // Restore visual state based on data
+            // This is handled better by fully regenerating innerHTML above, 
+            // but we need to set classes correctly after render.
+            // Simplified: The toggle logic updates data. 
+            // We just render raw. We need a way to restore visual state from group.vars
+            // Let's modify the generation loop above:
+            
+            buttonsHtml = '';
+            varNames.forEach(v => {
+                const s = group.vars[v];
+                let css = 'state-ignore';
+                let txt = '-';
+                if (s === 1) { css = 'state-1'; txt = v; }
+                if (s === 2) { css = 'state-0'; txt = '!' + v; }
+                
+                buttonsHtml += `
+                    <div class="var-btn ${css}" onclick="toggleVar(${group.id}, '${v}', this)">
+                        <span class="label">${v}</span>
+                        <span class="val">${txt}</span>
+                    </div>
+                `;
+            });
+
+            li.innerHTML = `
+                <div class="group-header">
+                    <span style="font-weight:bold; color:${group.color}">Skupina ${state.groups.indexOf(group)+1} <small>(${group.indices.length} buněk)</small></span>
+                    <button class="secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="removeGroup(${group.id})">❌</button>
+                </div>
+                <div style="font-size:0.85rem; color:#aaa; margin-bottom:5px;">Urči proměnné:</div>
+                <div class="var-toggles">
+                    ${buttonsHtml}
+                </div>
+            `;
+            list.appendChild(li);
+        }
+
+        function toggleVar(groupId, varName, btnEl) {
+            const group = state.groups.find(g => g.id === groupId);
+            if (!group) return;
+
+            let currentState = group.vars[varName];
+            let newState = (currentState + 1) % 3;
+            group.vars[varName] = newState;
+
+            btnEl.className = 'var-btn';
+            const valSpan = btnEl.querySelector('.val');
+
+            if (newState === 0) {
+                btnEl.classList.add('state-ignore');
+                valSpan.textContent = '-';
+            } else if (newState === 1) {
+                btnEl.classList.add('state-1');
+                valSpan.textContent = varName; 
+            } else {
+                btnEl.classList.add('state-0');
+                valSpan.textContent = '!' + varName; 
+            }
+            updateFinalEquationDisplay();
+        }
+
+        function removeGroup(id) {
+            state.groups = state.groups.filter(g => g.id !== id);
+            renderMap();
+            refreshGroupList();
+            updateFinalEquationDisplay();
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('groupError');
+            el.innerText = msg;
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 6000);
+        }
+
+        // --- SOLVER ---
+
+        function generateUserTerm(group) {
+            const parts = [];
+            const vars = getVarNames();
+            vars.forEach(v => {
+                const s = group.vars[v];
+                if (s === 1) parts.push(v);       // A
+                if (s === 2) parts.push("!" + v); // !A
+            });
+            
+            if (parts.length === 0) return state.solveMode === 'minterm' ? "1" : "0"; 
+
+            if (state.solveMode === 'minterm') {
+                return parts.join(""); // AND implies concat
+            } else {
+                // Maxterm: (A + !B + C)
+                return "(" + parts.join("+") + ")";
+            }
+        }
+
+        function updateFinalEquationDisplay() {
+            const terms = state.groups.map(g => {
+                const allDash = Object.values(g.vars).every(v => v === 0);
+                if (allDash && g.indices.length < Math.pow(2, state.vars)) return "?"; 
+                return generateUserTerm(g);
+            });
+            
+            const joiner = state.solveMode === 'minterm' ? " + " : "";
+            document.getElementById('finalEquationDisplay').innerText = "Y = " + (terms.length ? terms.join(joiner) : "...");
+        }
+
+        function checkFinalResult() {
+            const allTargets = [];
+            const targetVal = state.solveMode === 'minterm' ? 1 : 0;
+            
+            state.grid.forEach((val, idx) => { if(val===targetVal) allTargets.push(idx); });
+            const coveredIndices = new Set();
+            
+            state.groups.forEach(g => g.indices.forEach(idx => coveredIndices.add(idx)));
+            const missing = allTargets.filter(x => !coveredIndices.has(x));
+
+            const statusEl = document.getElementById('finalStatus');
+            statusEl.style.display = 'block';
+
+            if (missing.length > 0) {
+                statusEl.className = "status-msg error-text";
+                statusEl.innerHTML = `<strong>Chyba pokrytí:</strong> Chybí ${targetVal === 1 ? 'jedničky' : 'nuly'} (např. buňka ${missing[0]}).`;
+                return;
+            }
+
+            // Redundancy Check
+            const redundantGroups = [];
+            state.groups.forEach(g => {
+                const myIndices = g.indices;
+                const otherIndices = new Set();
+                state.groups.forEach(other => {
+                    if (other.id !== g.id) other.indices.forEach(idx => otherIndices.add(idx));
+                });
+                if (myIndices.every(idx => otherIndices.has(idx))) redundantGroups.push(state.groups.indexOf(g) + 1);
+            });
+
+            if (redundantGroups.length > 0) {
+                statusEl.className = "status-msg error-text";
+                statusEl.innerHTML = `<strong>Chyba efektivity:</strong> Skupina ${redundantGroups.join(", ")} je zbytečná. Cílem je minimální počet skupin!`;
+                return;
+            }
+
+            // Term Logic Check - Two Phase
+            let allCorrect = true;
+            let feedback = [];
+            
+            state.groups.forEach((group, idx) => {
+                const logic = getGroupLogic(group.indices);
+                const userVars = group.vars;
+                
+                // 1. Check correct vars selected
+                const correctVars = new Set(logic.involvedVars);
+                const selectedVars = new Set();
+                getVarNames().forEach(v => { if (userVars[v] !== 0) selectedVars.add(v); });
+                
+                const areVarsCorrect = (correctVars.size === selectedVars.size) && [...correctVars].every(v => selectedVars.has(v));
+                
+                if (!areVarsCorrect) {
+                    allCorrect = false;
+                    feedback.push(`Skupina ${idx+1}: Nesprávně zvolené proměnné.`);
+                } else {
+                    // 2. Check negations
+                    let negationsCorrect = true;
+                    logic.involvedVars.forEach(v => {
+                        const correctBit = logic.values[v]; // 1 if constant 1, 0 if constant 0
+                        const userSelection = userVars[v]; // 1 (Positive Literal) or 2 (Negative Literal)
+                        
+                        // Minterm (SOP): Map=1 -> Positive(A). Map=0 -> Negative(!A).
+                        // Maxterm (POS): Map=0 -> Positive(A). Map=1 -> Negative(!A).
+                        
+                        let expectedSelection;
+                        if (state.solveMode === 'minterm') {
+                            expectedSelection = (correctBit === 1) ? 1 : 2;
+                        } else {
+                            expectedSelection = (correctBit === 0) ? 1 : 2;
+                        }
+
+                        if (userSelection !== expectedSelection) negationsCorrect = false;
+                    });
+                    
+                    if (!negationsCorrect) {
+                        allCorrect = false;
+                        feedback.push(`Skupina ${idx+1}: Proměnné sedí, ale máš chybu v negacích.`);
+                    }
+                }
+            });
+
+            if (allCorrect) {
+                statusEl.className = "status-msg success-text";
+                statusEl.innerHTML = "<strong>Výborně!</strong> Vše je správně a optimálně minimalizováno.";
+            } else {
+                statusEl.className = "status-msg error-text";
+                statusEl.innerHTML = feedback.join("<br>");
+            }
+        }
+        
+        function getGroupLogic(indices) {
+            if (indices.length === 0) return { involvedVars: [], values: {} };
+            
+            let combinedAnd = indices[0];
+            let combinedOr = indices[0];
+            indices.forEach(idx => { combinedAnd &= idx; combinedOr |= idx; });
+            const diff = combinedAnd ^ combinedOr; 
+            
+            const involvedVars = [];
+            const values = {};
+            const varNames = getVarNames();
+            
+            for (let i = 0; i < state.vars; i++) {
+                const bitPos = state.vars - 1 - i;
+                if ((diff & (1 << bitPos)) === 0) {
+                    const vName = varNames[i];
+                    involvedVars.push(vName);
+                    // Check value in first index (is the variable constantly 1 or 0?)
+                    const isOne = (indices[0] & (1 << bitPos)) !== 0;
+                    values[vName] = isOne ? 1 : 0;
+                }
+            }
+            return { involvedVars, values };
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
+
