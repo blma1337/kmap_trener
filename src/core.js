@@ -8,11 +8,11 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
-    const VARIABLE_NAMES = Object.freeze(['A', 'B', 'C', 'D']);
+    const VARIABLE_NAMES = Object.freeze(['A', 'B', 'C', 'D', 'E']);
 
     function assertVariableCount(variableCount) {
-        if (!Number.isInteger(variableCount) || variableCount < 2 || variableCount > 4) {
-            throw new RangeError('Počet proměnných musí být celé číslo od 2 do 4.');
+        if (!Number.isInteger(variableCount) || variableCount < 2 || variableCount > 5) {
+            throw new RangeError('Počet proměnných musí být celé číslo od 2 do 5.');
         }
     }
 
@@ -65,14 +65,45 @@
     }
 
     function grayCode(bitCount) {
-        if (!Number.isInteger(bitCount) || bitCount < 1 || bitCount > 2) {
-            throw new RangeError('Pro mapu je podporován Grayův kód o délce 1 nebo 2 bity.');
+        if (!Number.isInteger(bitCount) || bitCount < 1 || bitCount > 3) {
+            throw new RangeError('Pro mapu je podporován Grayův kód o délce 1 až 3 bity.');
         }
-        return bitCount === 1 ? [0, 1] : [0, 1, 3, 2];
+
+        return Array.from({ length: 2 ** bitCount }, (_, index) => index ^ (index >> 1));
     }
 
     function toBinary(value, width) {
         return value.toString(2).padStart(width, '0');
+    }
+
+    function activeRuns(values, bitPosition) {
+        const runs = [];
+        let start = null;
+
+        for (let position = 0; position <= values.length; position += 1) {
+            const active = position < values.length
+                && ((values[position] >> bitPosition) & 1) === 1;
+
+            if (active && start === null) {
+                start = position;
+            } else if (!active && start !== null) {
+                runs.push({ start, span: position - start });
+                start = null;
+            }
+        }
+
+        return runs;
+    }
+
+    function createVariableGuides(values, variableNames, bitCount) {
+        return variableNames.map((name, variablePosition) => {
+            const bitPosition = variablePosition;
+            return {
+                name,
+                bitPosition,
+                runs: activeRuns(values, bitPosition)
+            };
+        });
     }
 
     function getMapLayout(variableCount) {
@@ -83,13 +114,21 @@
         const columns = grayCode(columnBits);
         const variableNames = getVariableNames(variableCount);
 
+        // Rozložení odpovídá dodaným výukovým podkladům:
+        // A, B a případně C tvoří sloupce (nižší bity indexu),
+        // zbývající proměnné tvoří řádky.
+        const columnVariableNames = variableNames.slice(0, columnBits);
+        const rowVariableNames = variableNames.slice(columnBits);
+
         return {
             rowBits,
             columnBits,
             rows,
             columns,
-            rowVariableNames: variableNames.slice(0, rowBits),
-            columnVariableNames: variableNames.slice(rowBits),
+            rowVariableNames,
+            columnVariableNames,
+            rowGuides: createVariableGuides(rows, rowVariableNames, rowBits),
+            columnGuides: createVariableGuides(columns, columnVariableNames, columnBits),
             indexAt(rowPosition, columnPosition) {
                 return (rows[rowPosition] << columnBits) | columns[columnPosition];
             }
@@ -146,9 +185,33 @@
         return result;
     }
 
+    function bitForIndex(index) {
+        return (1 << index) >>> 0;
+    }
+
+    function maskAnd(left, right) {
+        return (left & right) >>> 0;
+    }
+
+    function maskOr(left, right) {
+        return (left | right) >>> 0;
+    }
+
+    function maskWithout(left, right) {
+        return (left & ~right) >>> 0;
+    }
+
+    function maskContains(container, subset) {
+        return maskAnd(container, subset) === (subset >>> 0);
+    }
+
+    function maskHasIndex(mask, index) {
+        return maskAnd(mask, bitForIndex(index)) !== 0;
+    }
+
     function indicesToMask(indices) {
         let mask = 0;
-        for (const index of indices) mask |= (1 << index);
+        for (const index of indices) mask = maskOr(mask, bitForIndex(index));
         return mask >>> 0;
     }
 
@@ -179,7 +242,7 @@
         const values = {};
 
         for (let variablePosition = 0; variablePosition < variableCount; variablePosition += 1) {
-            const bitPosition = variableCount - 1 - variablePosition;
+            const bitPosition = variablePosition;
             const bit = 1 << bitPosition;
             if ((signature.fixedMask & bit) !== 0) {
                 const name = names[variablePosition];
@@ -216,7 +279,7 @@
             for (let variablePosition = 0; variablePosition < variableCount; variablePosition += 1) {
                 const state = rest % 3;
                 rest = Math.floor(rest / 3);
-                const bitPosition = variableCount - 1 - variablePosition;
+                const bitPosition = variablePosition;
                 const bit = 1 << bitPosition;
 
                 if (state !== 0) fixedMask |= bit;
@@ -228,7 +291,7 @@
             const indices = indicesForCube(fixedMask, fixedValue, variableCount);
             const coverMask = indicesToMask(indices);
 
-            if ((coverMask & targetMask) !== coverMask) continue;
+            if (!maskContains(targetMask, coverMask)) continue;
 
             candidates.push({
                 indices,
@@ -249,7 +312,7 @@
         const primes = candidates.filter(candidate => !candidates.some(other => (
             other.coverMask !== candidate.coverMask
             && other.cellCount > candidate.cellCount
-            && (candidate.coverMask & other.coverMask) === candidate.coverMask
+            && maskContains(other.coverMask, candidate.coverMask)
         )));
 
         return primes.sort((a, b) => (
@@ -284,7 +347,7 @@
         for (const target of targets) {
             const covering = [];
             for (let primeIndex = 0; primeIndex < primes.length; primeIndex += 1) {
-                if ((primes[primeIndex].coverMask & (1 << target)) !== 0) covering.push(primeIndex);
+                if (maskHasIndex(primes[primeIndex].coverMask, target)) covering.push(primeIndex);
             }
             coveringByTarget.set(target, covering);
         }
@@ -299,10 +362,10 @@
         let initialCovered = 0;
         let initialLiterals = 0;
         for (const primeIndex of initialSelected) {
-            initialCovered |= primes[primeIndex].coverMask;
+            initialCovered = maskOr(initialCovered, primes[primeIndex].coverMask);
             initialLiterals += primes[primeIndex].literalCount;
         }
-        initialCovered &= targetMask;
+        initialCovered = maskAnd(initialCovered, targetMask);
 
         let bestCost = { terms: Number.POSITIVE_INFINITY, literals: Number.POSITIVE_INFINITY };
         let bestSelected = [];
@@ -317,10 +380,10 @@
             let bestOptions = null;
 
             for (const target of targets) {
-                if ((coveredMask & (1 << target)) !== 0) continue;
+                if (maskHasIndex(coveredMask, target)) continue;
                 const options = coveringByTarget.get(target).filter(primeIndex => {
                     if (selectedSet.has(primeIndex)) return false;
-                    return ((coveredMask | primes[primeIndex].coverMask) & targetMask) !== coveredMask;
+                    return maskAnd(maskOr(coveredMask, primes[primeIndex].coverMask), targetMask) !== coveredMask;
                 });
 
                 if (bestOptions === null || options.length < bestOptions.length) {
@@ -333,14 +396,14 @@
         }
 
         function lowerBoundAdditionalTerms(coveredMask, selectedSet) {
-            const uncoveredMask = targetMask & ~coveredMask;
+            const uncoveredMask = maskWithout(targetMask, coveredMask);
             const uncoveredCount = popcount(uncoveredMask);
             if (uncoveredCount === 0) return 0;
 
             let maxGain = 0;
             for (let primeIndex = 0; primeIndex < primes.length; primeIndex += 1) {
                 if (selectedSet.has(primeIndex)) continue;
-                const gain = popcount(primes[primeIndex].coverMask & uncoveredMask);
+                const gain = popcount(maskAnd(primes[primeIndex].coverMask, uncoveredMask));
                 if (gain > maxGain) maxGain = gain;
             }
             return maxGain === 0 ? Number.POSITIVE_INFINITY : Math.ceil(uncoveredCount / maxGain);
@@ -369,12 +432,12 @@
             const choice = chooseUncoveredTarget(coveredMask, selectedSet);
             if (choice.target === null || choice.options.length === 0) return;
 
-            const uncoveredMask = targetMask & ~coveredMask;
+            const uncoveredMask = maskWithout(targetMask, coveredMask);
             choice.options.sort((leftIndex, rightIndex) => {
                 const left = primes[leftIndex];
                 const right = primes[rightIndex];
-                const leftGain = popcount(left.coverMask & uncoveredMask);
-                const rightGain = popcount(right.coverMask & uncoveredMask);
+                const leftGain = popcount(maskAnd(left.coverMask, uncoveredMask));
+                const rightGain = popcount(maskAnd(right.coverMask, uncoveredMask));
                 return rightGain - leftGain
                     || left.literalCount - right.literalCount
                     || leftIndex - rightIndex;
@@ -382,7 +445,7 @@
 
             for (const primeIndex of choice.options) {
                 const prime = primes[primeIndex];
-                const nextCovered = (coveredMask | prime.coverMask) & targetMask;
+                const nextCovered = maskAnd(maskOr(coveredMask, prime.coverMask), targetMask);
                 if (nextCovered === coveredMask) continue;
 
                 selected.push(primeIndex);

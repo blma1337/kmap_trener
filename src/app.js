@@ -126,7 +126,9 @@
         const targetScore = targetScores[difficulty] ?? targetScores.medium;
         let best = null;
 
-        for (let attempt = 0; attempt < 320; attempt += 1) {
+        const maximumAttempts = variableCount === 5 ? 120 : 320;
+
+        for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
             const probability = 0.22 + Math.random() * 0.56;
             const candidate = [];
             for (let index = 0; index < total; index += 1) {
@@ -336,7 +338,7 @@
             eyeCell.appendChild(eyeButton);
             row.appendChild(eyeCell);
 
-            for (let bitPosition = state.variableCount - 1; bitPosition >= 0; bitPosition -= 1) {
+            for (let bitPosition = 0; bitPosition < state.variableCount; bitPosition += 1) {
                 const cell = document.createElement('td');
                 cell.textContent = String((index >> bitPosition) & 1);
                 row.appendChild(cell);
@@ -407,20 +409,34 @@
 
     function renderMap() {
         const layout = core.getMapLayout(state.variableCount);
+        const diagram = document.createElement('div');
+        diagram.className = 'kmap-diagram';
+        diagram.style.setProperty('--map-column-count', String(layout.columns.length));
+        diagram.style.setProperty('--map-row-count', String(layout.rows.length));
+        diagram.style.setProperty('--column-guide-count', String(layout.columnGuides.length));
+        diagram.style.setProperty('--row-guide-count', String(layout.rowGuides.length));
+
+        const columnGuides = createVariableGuideLayer(layout.columnGuides, 'column');
+        const rowGuides = createVariableGuideLayer(layout.rowGuides, 'row');
+
         const table = document.createElement('table');
         table.className = 'kmap-table';
-        table.setAttribute('aria-label', 'Karnaughova mapa v Grayově pořadí');
+        table.setAttribute(
+            'aria-label',
+            `Karnaughova mapa v Grayově pořadí. Řádky: ${layout.rowVariableNames.join(', ')}. Sloupce: ${layout.columnVariableNames.join(', ')}.`
+        );
 
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
         const axis = document.createElement('th');
         axis.className = 'kmap-axis';
         axis.scope = 'col';
-        axis.textContent = `${layout.rowVariableNames.join('')} ╲ ${layout.columnVariableNames.join('')}`;
+        axis.textContent = 'Gray';
         headerRow.appendChild(axis);
 
         for (const columnGray of layout.columns) {
             const th = document.createElement('th');
+            th.className = 'kmap-column-code';
             th.scope = 'col';
             th.textContent = core.toBinary(columnGray, layout.columnBits);
             headerRow.appendChild(th);
@@ -434,6 +450,7 @@
         for (let rowPosition = 0; rowPosition < layout.rows.length; rowPosition += 1) {
             const row = document.createElement('tr');
             const rowHeader = document.createElement('th');
+            rowHeader.className = 'kmap-row-code';
             rowHeader.scope = 'row';
             rowHeader.textContent = core.toBinary(layout.rows[rowPosition], layout.rowBits);
             row.appendChild(rowHeader);
@@ -512,7 +529,47 @@
         }
 
         table.appendChild(tbody);
-        elements.mapContainer.replaceChildren(table);
+        diagram.append(columnGuides, rowGuides, table);
+        elements.mapPanel.classList.toggle('has-five-variable-map', state.variableCount === 5);
+        elements.mapContainer.classList.toggle('map-container-five', state.variableCount === 5);
+        elements.mapContainer.replaceChildren(diagram);
+    }
+
+    function createVariableGuideLayer(guides, orientation) {
+        const layer = document.createElement('div');
+        layer.className = orientation === 'column'
+            ? 'variable-guides variable-guides-column'
+            : 'variable-guides variable-guides-row';
+        layer.setAttribute('aria-hidden', 'true');
+
+        guides.forEach((guide, guidePosition) => {
+            guide.runs.forEach((run, runPosition) => {
+                const segment = document.createElement('span');
+                segment.className = orientation === 'column'
+                    ? 'variable-guide variable-guide-column'
+                    : 'variable-guide variable-guide-row';
+                segment.dataset.variable = guide.name;
+                segment.dataset.start = String(run.start);
+                segment.dataset.span = String(run.span);
+                segment.dataset.segment = String(runPosition);
+                segment.style.setProperty('--guide-level', String(guidePosition));
+                segment.style.setProperty('--guide-start', String(run.start));
+                segment.style.setProperty('--guide-span', String(run.span));
+                segment.style.setProperty('--guide-grid-start', String(run.start + 2));
+                segment.style.setProperty(
+                    '--guide-grid-level',
+                    String(guides.length - guidePosition)
+                );
+
+                const label = document.createElement('span');
+                label.className = 'variable-guide-label';
+                label.textContent = guide.name;
+                segment.appendChild(label);
+                layer.appendChild(segment);
+            });
+        });
+
+        return layer;
     }
 
     function handleMapClick(index) {
@@ -566,7 +623,11 @@
         state.mapErrors.clear();
         state.phase = Phase.SOLVER;
         const targetWord = state.solveMode === 'minterm' ? 'jedničky' : 'nuly';
-        elements.solverInstruction.textContent = `Označ sousední ${targetWord} ve skupinách velikosti 1, 2, 4, 8 nebo 16. Poté u každé skupiny urči konstantní proměnné.`;
+        const groupSizes = Array.from(
+            { length: state.variableCount + 1 },
+            (_, power) => 2 ** power
+        ).join(', ');
+        elements.solverInstruction.textContent = `Označ sousední ${targetWord} ve skupinách velikosti ${groupSizes}. Poté u každé skupiny urči konstantní proměnné.`;
         updateEquation();
         updatePhaseUi();
         showMessage(elements.mapMessage, 'success', 'Mapa je správně. Minimalizace byla odemčena.');
@@ -582,7 +643,10 @@
 
         elements.animationPanel.hidden = false;
         elements.animationNextButton.textContent = 'Začít eliminaci';
-        elements.animationText.textContent = `Hledáme index ${rowIndex}, binárně ${core.toBinary(rowIndex, state.variableCount)}.`;
+        const assignment = core.getVariableNames(state.variableCount)
+            .map((variable, bitPosition) => `${variable}=${(rowIndex >> bitPosition) & 1}`)
+            .join(', ');
+        elements.animationText.textContent = `Hledáme index ${rowIndex}: ${assignment}.`;
 
         const candidates = new Set();
         for (let index = 0; index < core.totalCellCount(state.variableCount); index += 1) candidates.add(index);
@@ -621,7 +685,7 @@
         }
 
         const variable = variables[animation.step];
-        const bitPosition = state.variableCount - 1 - animation.step;
+        const bitPosition = animation.step;
         const requiredBit = (animation.rowIndex >> bitPosition) & 1;
 
         if (animation.phase === 'show') {
