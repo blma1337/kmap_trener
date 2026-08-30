@@ -135,6 +135,118 @@
         };
     }
 
+    function getAxisSegments(values, total) {
+        const active = new Set(values);
+        if (active.size === 0) return { segments: [], wrap: false };
+        if (active.size === total) {
+            return {
+                segments: [{ start: 0, length: total, openStart: false, openEnd: false }],
+                wrap: false
+            };
+        }
+
+        const segments = [];
+        let start = null;
+        for (let position = 0; position <= total; position += 1) {
+            const isActive = position < total && active.has(position);
+            if (isActive && start === null) {
+                start = position;
+            } else if (!isActive && start !== null) {
+                segments.push({
+                    start,
+                    length: position - start,
+                    openStart: false,
+                    openEnd: false
+                });
+                start = null;
+            }
+        }
+
+        const wrapsAcrossBoundary = (
+            segments.length > 1
+            && active.has(0)
+            && active.has(total - 1)
+        );
+
+        if (!wrapsAcrossBoundary) {
+            return { segments, wrap: false };
+        }
+
+        const first = segments[0];
+        const last = segments[segments.length - 1];
+        first.openStart = true;
+        last.openEnd = true;
+
+        // Pro wrap-around komponentu vracíme nejprve část u konce osy a
+        // potom část u začátku. Vykreslení tak odpovídá přirozenému směru
+        // "přes pravý/dolní kraj -> levý/horní kraj" a zachovává stabilní
+        // pořadí používané staršími vizuálními testy.
+        return {
+            segments: [last, ...segments.slice(1, -1), first],
+            wrap: true
+        };
+    }
+
+    function getGroupVisualGeometry(indices, variableCount) {
+        const normalized = normalizeIndices(indices, variableCount);
+        if (!isValidGroup(normalized, variableCount)) {
+            throw new RangeError('Vizuální geometrie vyžaduje platnou Karnaughovu skupinu.');
+        }
+
+        const layout = getMapLayout(variableCount);
+        const positionByIndex = new Map();
+        for (let row = 0; row < layout.rows.length; row += 1) {
+            for (let column = 0; column < layout.columns.length; column += 1) {
+                positionByIndex.set(layout.indexAt(row, column), { row, column });
+            }
+        }
+
+        const rowSet = new Set();
+        const columnSet = new Set();
+        normalized.forEach(index => {
+            const position = positionByIndex.get(index);
+            rowSet.add(position.row);
+            columnSet.add(position.column);
+        });
+
+        // U 5 proměnných jsou tři bity na vodorovné ose. Pevná proměnná
+        // proto může vytvořit dvě oddělené vnitřní oblasti (např. A=1 má
+        // sloupce 1–2 a 5–6). Starší implementace předpokládala jediný
+        // cyklický úsek a takovou množinu mylně převáděla na wrap-around.
+        // Rozklad na všechny lineární segmenty řeší jak tyto vnitřní
+        // oblasti, tak skutečné spojení přes protilehlé okraje.
+        const rowAxis = getAxisSegments([...rowSet], layout.rows.length);
+        const columnAxis = getAxisSegments([...columnSet], layout.columns.length);
+        const rowParts = rowAxis.segments;
+        const columnParts = columnAxis.segments;
+        const wrapRows = rowAxis.wrap;
+        const wrapColumns = columnAxis.wrap;
+        const boxes = [];
+
+        rowParts.forEach(rowPart => {
+            columnParts.forEach(columnPart => {
+                boxes.push({
+                    rowStart: rowPart.start,
+                    rowSpan: rowPart.length,
+                    columnStart: columnPart.start,
+                    columnSpan: columnPart.length,
+                    openTop: Boolean(rowPart.openStart),
+                    openBottom: Boolean(rowPart.openEnd),
+                    openLeft: Boolean(columnPart.openStart),
+                    openRight: Boolean(columnPart.openEnd)
+                });
+            });
+        });
+
+        return {
+            boxes,
+            wrapRows,
+            wrapColumns,
+            rowParts,
+            columnParts
+        };
+    }
+
     function popcount(value) {
         let count = 0;
         let remaining = value >>> 0;
@@ -543,6 +655,57 @@
         };
     }
 
+    /**
+     * Přidělí každé skupině stabilní grafickou „kolej“ obrysu.
+     *
+     * Dvě skupiny, které sdílejí alespoň jednu buňku, dostanou rozdílnou
+     * kolej. Skupina přitom používá stejnou kolej ve všech svých buňkách.
+     * Díky tomu se její odsazení mezi sousedními buňkami nemění a obrys
+     * nevytváří schody ani zuby v místech přechodu přes hranici buňky.
+     *
+     * @param {Array<Array<number>|{indices:Array<number>}>} groups
+     * @returns {number[]} číslo koleje pro každou skupinu ve vstupním pořadí
+     */
+    function assignGroupOutlineLanes(groups) {
+        if (!Array.isArray(groups)) {
+            throw new TypeError('Skupiny musí být předány jako pole.');
+        }
+
+        const sets = groups.map(group => {
+            const indices = group && typeof group === 'object' && 'indices' in group
+                ? group.indices
+                : group;
+            if (!indices || typeof indices[Symbol.iterator] !== 'function') {
+                throw new TypeError('Každá skupina musí obsahovat iterovatelný seznam indexů.');
+            }
+            return new Set(indices);
+        });
+
+        const lanes = [];
+        for (let groupPosition = 0; groupPosition < sets.length; groupPosition += 1) {
+            const usedLanes = new Set();
+            const current = sets[groupPosition];
+
+            for (let previousPosition = 0; previousPosition < groupPosition; previousPosition += 1) {
+                const previous = sets[previousPosition];
+                let intersects = false;
+                for (const index of current) {
+                    if (previous.has(index)) {
+                        intersects = true;
+                        break;
+                    }
+                }
+                if (intersects) usedLanes.add(lanes[previousPosition]);
+            }
+
+            let lane = 0;
+            while (usedLanes.has(lane)) lane += 1;
+            lanes.push(lane);
+        }
+
+        return lanes;
+    }
+
     return Object.freeze({
         getVariableNames,
         totalCellCount,
@@ -564,6 +727,8 @@
         getExpectedLiteralStates,
         getCoverCost,
         coverTargets,
+        assignGroupOutlineLanes,
+        getGroupVisualGeometry,
         compareCost
     });
 }));

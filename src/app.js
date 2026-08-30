@@ -22,7 +22,6 @@
         '#ff7043', '#ffb300', '#9ccc65', '#ec407a',
         '#ab47bc', '#ef5350', '#ffa726', '#d4e157'
     ]);
-    const GROUP_BORDER_STYLES = Object.freeze(['solid', 'dashed', 'dotted', 'double']);
 
     const state = {
         variableCount: 4,
@@ -39,6 +38,7 @@
         selectedIndices: new Set(),
         groups: [],
         nextGroupId: 1,
+        activeGroupId: null,
         animation: null,
         hintTimer: null
     };
@@ -59,7 +59,8 @@
             'truthTable', 'checkTableButton', 'skipTableButton', 'tableMessage',
             'tablePanel', 'tableStepState', 'mapPanel', 'mapStepState', 'mapContainer',
             'animationPanel', 'animationText', 'animationNextButton', 'animationStopButton',
-            'checkMapButton', 'mapMessage', 'solverPanel', 'solverStepState',
+            'mapHelpButton', 'checkMapButton', 'skipMapButton', 'mapMessage',
+            'solverPanel', 'solverStepState',
             'solverInstruction', 'createGroupButton', 'clearSelectionButton', 'hintButton',
             'hintMessage', 'groupMessage', 'groupsList', 'finalEquation',
             'checkFinalButton', 'finalMessage'
@@ -93,7 +94,9 @@
 
         elements.checkTableButton.addEventListener('click', checkTruthTable);
         elements.skipTableButton.addEventListener('click', fillTruthTableAutomatically);
+        elements.mapHelpButton.addEventListener('click', startMapHelp);
         elements.checkMapButton.addEventListener('click', checkMap);
+        elements.skipMapButton.addEventListener('click', fillMapAutomatically);
         elements.animationNextButton.addEventListener('click', nextAnimationStep);
         elements.animationStopButton.addEventListener('click', () => stopAnimation(true));
 
@@ -204,6 +207,7 @@
         state.selectedIndices = new Set();
         state.groups = [];
         state.nextGroupId = 1;
+        state.activeGroupId = null;
 
         hideAllMessages();
         renderTruthTable();
@@ -216,9 +220,18 @@
     function updateTaskDescription() {
         const indices = state.taskIndices.length > 0 ? state.taskIndices.join(', ') : '∅';
         const notation = state.solveMode === 'minterm' ? 'Σm' : 'ΠM';
-        const targetName = state.solveMode === 'minterm' ? 'jedničku' : 'nulu';
+        const targetSingular = state.solveMode === 'minterm' ? 'jednička' : 'nula';
+        const targetPlural = state.solveMode === 'minterm' ? 'jedničky' : 'nuly';
+        const targetTypePlural = state.solveMode === 'minterm' ? 'mintermy' : 'maxtermy';
         elements.taskIndices.textContent = `Y = ${notation}(${indices})`;
-        elements.taskMeaning.textContent = `Na uvedených indexech musí být ${targetName}.`;
+
+        if (state.taskIndices.length === 0) {
+            elements.taskMeaning.textContent = `Nejsou zadány žádné ${targetTypePlural}.`;
+        } else if (state.taskIndices.length === 1) {
+            elements.taskMeaning.textContent = `Na uvedeném indexu musí být ${targetSingular}.`;
+        } else {
+            elements.taskMeaning.textContent = `Na uvedených indexech musí být ${targetPlural}.`;
+        }
     }
 
     function expectedValue(index) {
@@ -275,7 +288,10 @@
 
         elements.checkTableButton.disabled = state.phase !== Phase.TABLE;
         elements.skipTableButton.disabled = state.phase !== Phase.TABLE;
-        elements.checkMapButton.disabled = state.phase !== Phase.MAP;
+        const mapBusy = Boolean(state.animation);
+        elements.mapHelpButton.disabled = state.phase !== Phase.MAP || mapBusy;
+        elements.checkMapButton.disabled = state.phase !== Phase.MAP || mapBusy;
+        elements.skipMapButton.disabled = state.phase !== Phase.MAP || mapBusy;
 
         const solverDisabled = !solverUnlocked;
         elements.createGroupButton.disabled = solverDisabled;
@@ -300,7 +316,7 @@
         const headerRow = document.createElement('tr');
         const hintHeader = document.createElement('th');
         hintHeader.scope = 'col';
-        hintHeader.textContent = 'Mapa';
+        hintHeader.textContent = 'Nápověda';
         headerRow.appendChild(hintHeader);
 
         for (const variable of core.getVariableNames(state.variableCount)) {
@@ -318,7 +334,7 @@
         table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
-        const canAnimate = state.phase !== Phase.TABLE;
+        const canAnimate = state.phase === Phase.MAP && !state.animation;
         const canEdit = state.phase === Phase.TABLE;
 
         for (let index = 0; index < state.tableValues.length; index += 1) {
@@ -351,7 +367,7 @@
             outputButton.className = `output-button ${valueClass(value)}`;
             outputButton.textContent = valueLabel(value);
             outputButton.disabled = !canEdit;
-            outputButton.setAttribute('aria-label', `Index ${index}, Y je ${value === null ? 'nevyplněno' : value}. Změnit hodnotu.`);
+            outputButton.setAttribute('aria-label', `Index ${index}, hodnota Y: ${value === null ? 'nevyplněná' : value}. Změnit hodnotu.`);
             outputButton.addEventListener('click', () => {
                 state.tableValues[index] = cycleValue(state.tableValues[index]);
                 state.tableErrors.delete(index);
@@ -396,7 +412,7 @@
         state.tableErrors.clear();
         state.phase = Phase.MAP;
         updatePhaseUi();
-        showMessage(elements.tableMessage, 'success', 'Tabulka je správně. Nyní přenes hodnoty do mapy podle Grayova pořadí.');
+        showMessage(elements.tableMessage, 'success', 'Tabulka je správně. Nyní přenes každou hodnotu Y do buňky se stejným indexem N.');
     }
 
     function fillTruthTableAutomatically() {
@@ -404,7 +420,7 @@
         state.tableErrors.clear();
         state.phase = Phase.MAP;
         updatePhaseUi();
-        showMessage(elements.tableMessage, 'success', 'Tabulka byla vyplněna automaticky. Pokračuj přepisem do mapy.');
+        showMessage(elements.tableMessage, 'success', 'Tabulka byla vyplněna automaticky. Pokračuj přepisem hodnot do mapy.');
     }
 
     function renderMap() {
@@ -418,42 +434,26 @@
 
         const columnGuides = createVariableGuideLayer(layout.columnGuides, 'column');
         const rowGuides = createVariableGuideLayer(layout.rowGuides, 'row');
+        const fiveVariableDivider = state.variableCount === 5
+            ? createFiveVariableDivider()
+            : null;
 
         const table = document.createElement('table');
         table.className = 'kmap-table';
         table.setAttribute(
             'aria-label',
-            `Karnaughova mapa v Grayově pořadí. Řádky: ${layout.rowVariableNames.join(', ')}. Sloupce: ${layout.columnVariableNames.join(', ')}.`
+            `Karnaughova mapa. Čáry nad mapou a vlevo vyznačují oblasti, ve kterých mají proměnné ${core.getVariableNames(state.variableCount).join(', ')} hodnotu jedna.`
         );
-
-        const thead = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-        const axis = document.createElement('th');
-        axis.className = 'kmap-axis';
-        axis.scope = 'col';
-        axis.textContent = 'Gray';
-        headerRow.appendChild(axis);
-
-        for (const columnGray of layout.columns) {
-            const th = document.createElement('th');
-            th.className = 'kmap-column-code';
-            th.scope = 'col';
-            th.textContent = core.toBinary(columnGray, layout.columnBits);
-            headerRow.appendChild(th);
-        }
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
 
         const tbody = document.createElement('tbody');
         const solverMode = state.phase === Phase.SOLVER || state.phase === Phase.COMPLETE;
+        const outlineLanes = core.assignGroupOutlineLanes(state.groups);
+        const outlineLaneByGroupId = new Map(
+            state.groups.map((group, groupPosition) => [group.id, outlineLanes[groupPosition]])
+        );
 
         for (let rowPosition = 0; rowPosition < layout.rows.length; rowPosition += 1) {
             const row = document.createElement('tr');
-            const rowHeader = document.createElement('th');
-            rowHeader.className = 'kmap-row-code';
-            rowHeader.scope = 'row';
-            rowHeader.textContent = core.toBinary(layout.rows[rowPosition], layout.rowBits);
-            row.appendChild(rowHeader);
 
             for (let columnPosition = 0; columnPosition < layout.columns.length; columnPosition += 1) {
                 const index = layout.indexAt(rowPosition, columnPosition);
@@ -487,16 +487,10 @@
                 if (participating.length > 0) {
                     const badges = document.createElement('span');
                     badges.className = 'group-badges';
-                    participating.forEach(({ group, groupPosition }, markerPosition) => {
-                        const border = document.createElement('span');
-                        border.className = 'group-border';
-                        border.style.inset = `${2 + markerPosition * 3}px`;
-                        border.style.borderColor = group.color;
-                        border.style.borderStyle = group.borderStyle;
-                        button.appendChild(border);
-
+                    participating.forEach(({ group, groupPosition }) => {
                         const badge = document.createElement('span');
                         badge.className = 'group-badge';
+                        badge.dataset.groupId = String(group.id);
                         badge.style.backgroundColor = group.color;
                         badge.textContent = String(groupPosition + 1);
                         badges.appendChild(badge);
@@ -506,7 +500,7 @@
 
                 if (state.phase === Phase.MAP) {
                     button.disabled = Boolean(state.animation);
-                    button.setAttribute('aria-label', `Index ${index}, hodnota ${value === null ? 'nevyplněno' : value}. Změnit hodnotu mapy.`);
+                    button.setAttribute('aria-label', `Index ${index}, hodnota: ${value === null ? 'nevyplněná' : value}. Změnit hodnotu mapy.`);
                 } else if (solverMode) {
                     button.disabled = !isTarget || Boolean(state.animation);
                     button.setAttribute('aria-pressed', String(selected));
@@ -530,9 +524,13 @@
 
         table.appendChild(tbody);
         diagram.append(columnGuides, rowGuides, table);
+        if (fiveVariableDivider) diagram.appendChild(fiveVariableDivider);
         elements.mapPanel.classList.toggle('has-five-variable-map', state.variableCount === 5);
         elements.mapContainer.classList.toggle('map-container-five', state.variableCount === 5);
         elements.mapContainer.replaceChildren(diagram);
+        if (fiveVariableDivider) positionFiveVariableDivider(diagram, table, fiveVariableDivider);
+        renderGroupOverlay(diagram, layout, outlineLaneByGroupId);
+        refreshActiveGroupVisuals();
     }
 
     function createVariableGuideLayer(guides, orientation) {
@@ -555,7 +553,7 @@
                 segment.style.setProperty('--guide-level', String(guidePosition));
                 segment.style.setProperty('--guide-start', String(run.start));
                 segment.style.setProperty('--guide-span', String(run.span));
-                segment.style.setProperty('--guide-grid-start', String(run.start + 2));
+                segment.style.setProperty('--guide-grid-start', String(run.start + 1));
                 segment.style.setProperty(
                     '--guide-grid-level',
                     String(guides.length - guidePosition)
@@ -572,6 +570,235 @@
         return layer;
     }
 
+    function renderGroupOverlay(diagram, layout, outlineLaneByGroupId) {
+        if (state.groups.length === 0) return;
+
+        const table = diagram.querySelector('.kmap-table');
+        const firstCell = table?.querySelector('.map-cell');
+        if (!table || !firstCell) return;
+
+        const tableRect = table.getBoundingClientRect();
+        const diagramRect = diagram.getBoundingClientRect();
+        const cellRect = firstCell.getBoundingClientRect();
+        const mapOriginX = tableRect.left - diagramRect.left;
+        const mapOriginY = tableRect.top - diagramRect.top;
+        const cellWidth = cellRect.width;
+        const cellHeight = cellRect.height;
+        const stubLength = Math.max(14, Math.round(Math.min(cellWidth, cellHeight) * 0.34));
+        const radius = Math.max(5, Math.round(Math.min(cellWidth, cellHeight) * 0.12));
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.classList.add('group-overlay');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('viewBox', `0 0 ${Math.ceil(diagramRect.width)} ${Math.ceil(diagramRect.height)}`);
+        svg.setAttribute('width', `${Math.ceil(diagramRect.width)}`);
+        svg.setAttribute('height', `${Math.ceil(diagramRect.height)}`);
+
+        state.groups.forEach((group, groupPosition) => {
+            const lane = outlineLaneByGroupId.get(group.id) ?? 0;
+            const inset = 2 + lane * 3;
+            const strokeWidth = state.activeGroupId === group.id ? 3 : 2;
+            const visual = core.getGroupVisualGeometry(group.indices, state.variableCount);
+            const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            wrapper.classList.add('group-shape');
+            wrapper.dataset.groupId = String(group.id);
+            wrapper.style.setProperty('--group-color', group.color);
+            wrapper.setAttribute('stroke', group.color);
+            wrapper.setAttribute('fill', 'none');
+            wrapper.setAttribute('stroke-linecap', 'round');
+            wrapper.setAttribute('stroke-linejoin', 'round');
+            wrapper.setAttribute('stroke-width', String(strokeWidth));
+
+            visual.boxes.forEach(box => {
+                const x = mapOriginX + box.columnStart * cellWidth + inset;
+                const y = mapOriginY + box.rowStart * cellHeight + inset;
+                const width = box.columnSpan * cellWidth - inset * 2;
+                const height = box.rowSpan * cellHeight - inset * 2;
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.classList.add('group-outline');
+                path.dataset.groupId = String(group.id);
+                path.dataset.groupIndex = String(groupPosition + 1);
+                path.dataset.openSides = [
+                    box.openTop ? 'top' : '',
+                    box.openRight ? 'right' : '',
+                    box.openBottom ? 'bottom' : '',
+                    box.openLeft ? 'left' : ''
+                ].filter(Boolean).join(',');
+                path.setAttribute('d', createOpenGroupPath(x, y, width, height, radius, stubLength, box));
+                wrapper.appendChild(path);
+            });
+
+            svg.appendChild(wrapper);
+        });
+
+        diagram.appendChild(svg);
+    }
+
+    function createOpenGroupPath(x, y, width, height, radius, stubLength, box) {
+        const openTop = Boolean(box.openTop);
+        const openRight = Boolean(box.openRight);
+        const openBottom = Boolean(box.openBottom);
+        const openLeft = Boolean(box.openLeft);
+        const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+        const right = x + width;
+        const bottom = y + height;
+
+        if (!openTop && !openRight && !openBottom && !openLeft) {
+            return [
+                `M ${x + r} ${y}`,
+                `H ${right - r}`,
+                `Q ${right} ${y} ${right} ${y + r}`,
+                `V ${bottom - r}`,
+                `Q ${right} ${bottom} ${right - r} ${bottom}`,
+                `H ${x + r}`,
+                `Q ${x} ${bottom} ${x} ${bottom - r}`,
+                `V ${y + r}`,
+                `Q ${x} ${y} ${x + r} ${y}`,
+                'Z'
+            ].join(' ');
+        }
+
+        if (openLeft && !openTop && !openBottom) {
+            return [
+                `M ${x - stubLength} ${y}`,
+                `H ${right - r}`,
+                `Q ${right} ${y} ${right} ${y + r}`,
+                `V ${bottom - r}`,
+                `Q ${right} ${bottom} ${right - r} ${bottom}`,
+                `H ${x - stubLength}`
+            ].join(' ');
+        }
+
+        if (openRight && !openTop && !openBottom) {
+            return [
+                `M ${right + stubLength} ${y}`,
+                `H ${x + r}`,
+                `Q ${x} ${y} ${x} ${y + r}`,
+                `V ${bottom - r}`,
+                `Q ${x} ${bottom} ${x + r} ${bottom}`,
+                `H ${right + stubLength}`
+            ].join(' ');
+        }
+
+        if (openTop && !openLeft && !openRight) {
+            return [
+                `M ${x} ${y - stubLength}`,
+                `V ${bottom - r}`,
+                `Q ${x} ${bottom} ${x + r} ${bottom}`,
+                `H ${right - r}`,
+                `Q ${right} ${bottom} ${right} ${bottom - r}`,
+                `V ${y - stubLength}`
+            ].join(' ');
+        }
+
+        if (openBottom && !openLeft && !openRight) {
+            return [
+                `M ${x} ${bottom + stubLength}`,
+                `V ${y + r}`,
+                `Q ${x} ${y} ${x + r} ${y}`,
+                `H ${right - r}`,
+                `Q ${right} ${y} ${right} ${y + r}`,
+                `V ${bottom + stubLength}`
+            ].join(' ');
+        }
+
+        if (openTop && openLeft) {
+            return [
+                `M ${right} ${y - stubLength}`,
+                `V ${bottom - r}`,
+                `Q ${right} ${bottom} ${right - r} ${bottom}`,
+                `H ${x - stubLength}`
+            ].join(' ');
+        }
+
+        if (openTop && openRight) {
+            return [
+                `M ${x} ${y - stubLength}`,
+                `V ${bottom - r}`,
+                `Q ${x} ${bottom} ${x + r} ${bottom}`,
+                `H ${right + stubLength}`
+            ].join(' ');
+        }
+
+        if (openBottom && openLeft) {
+            return [
+                `M ${x - stubLength} ${y}`,
+                `H ${right - r}`,
+                `Q ${right} ${y} ${right} ${y + r}`,
+                `V ${bottom + stubLength}`
+            ].join(' ');
+        }
+
+        if (openBottom && openRight) {
+            return [
+                `M ${right + stubLength} ${y}`,
+                `H ${x + r}`,
+                `Q ${x} ${y} ${x} ${y + r}`,
+                `V ${bottom + stubLength}`
+            ].join(' ');
+        }
+
+        return '';
+    }
+
+    function createFiveVariableDivider() {
+        const divider = document.createElement('span');
+        divider.className = 'five-variable-divider';
+        divider.setAttribute('aria-hidden', 'true');
+
+        const topSegment = document.createElement('span');
+        topSegment.className = 'five-variable-divider-segment top';
+        divider.appendChild(topSegment);
+
+        const bottomSegment = document.createElement('span');
+        bottomSegment.className = 'five-variable-divider-segment bottom';
+        divider.appendChild(bottomSegment);
+
+        return divider;
+    }
+
+    function positionFiveVariableDivider(diagram, table, divider) {
+        const firstRow = table.rows?.[0];
+        if (!firstRow || firstRow.cells.length < 5) return;
+
+        const leftCell = firstRow.cells[3];
+        const rightCell = firstRow.cells[4];
+        const leftButton = leftCell.querySelector('.map-cell');
+        const diagramRect = diagram.getBoundingClientRect();
+        const leftRect = leftCell.getBoundingClientRect();
+        const rightRect = rightCell.getBoundingClientRect();
+        const tableRect = table.getBoundingClientRect();
+        const gridBorderWidth = leftButton
+            ? (parseFloat(getComputedStyle(leftButton).borderRightWidth) || 1)
+            : 1;
+        // Překryjeme skutečný border-right 4. sloupce. Nejde jen o
+        // matematický střed tabulky: hranice mřížky je kreslena uvnitř
+        // předchozí buňky, takže její levý okraj je o šířku borderu vlevo.
+        const axisLeft = leftRect.right - diagramRect.left - gridBorderWidth;
+        const expectedBoundary = rightRect.left - diagramRect.left;
+        const guideRows = Number(getComputedStyle(document.documentElement).getPropertyValue('--column-guide-count').trim() || 0);
+        const guideLaneHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--guide-lane-height')) || 20;
+        const topGuideBottom = guideRows * guideLaneHeight;
+        const topSegment = divider.querySelector('.five-variable-divider-segment.top');
+        const bottomSegment = divider.querySelector('.five-variable-divider-segment.bottom');
+        const tableTop = tableRect.top - diagramRect.top;
+        const tableBottom = tableRect.bottom - diagramRect.top;
+        const cellHeight = leftRect.height;
+
+        divider.style.left = `${axisLeft}px`;
+        divider.style.setProperty('--divider-width', `${gridBorderWidth}px`);
+        divider.dataset.axisBoundary = String(expectedBoundary);
+        if (topSegment) {
+            topSegment.style.top = `${Math.round(topGuideBottom - 14)}px`;
+            topSegment.style.height = `${Math.round((tableTop + cellHeight * 0.75) - (topGuideBottom - 14))}px`;
+        }
+        if (bottomSegment) {
+            const bottomStart = tableBottom - cellHeight * 0.75;
+            bottomSegment.style.top = `${Math.round(bottomStart)}px`;
+            bottomSegment.style.height = `${Math.round((tableBottom + 12) - bottomStart)}px`;
+        }
+    }
+
     function handleMapClick(index) {
         if (state.animation) return;
 
@@ -586,6 +813,7 @@
         if (state.phase === Phase.SOLVER || state.phase === Phase.COMPLETE) {
             if (!state.taskSet.has(index)) return;
             markSolverDirty();
+            setActiveGroup(null);
             if (state.selectedIndices.has(index)) state.selectedIndices.delete(index);
             else state.selectedIndices.add(index);
             elements.clearSelectionButton.disabled = state.selectedIndices.size === 0;
@@ -621,6 +849,18 @@
         }
 
         state.mapErrors.clear();
+        advanceToSolver('Mapa je správně. Minimalizace byla odemčena.');
+    }
+
+    function fillMapAutomatically() {
+        if (state.phase !== Phase.MAP) return;
+        stopAnimation(false);
+        state.mapValues = state.tableValues.slice();
+        state.mapErrors.clear();
+        advanceToSolver('Vyplnění mapy bylo přeskočeno. Hodnoty byly přeneseny automaticky a minimalizace je odemčena.');
+    }
+
+    function advanceToSolver(message) {
         state.phase = Phase.SOLVER;
         const targetWord = state.solveMode === 'minterm' ? 'jedničky' : 'nuly';
         const groupSizes = Array.from(
@@ -630,41 +870,98 @@
         elements.solverInstruction.textContent = `Označ sousední ${targetWord} ve skupinách velikosti ${groupSizes}. Poté u každé skupiny urči konstantní proměnné.`;
         updateEquation();
         updatePhaseUi();
-        showMessage(elements.mapMessage, 'success', 'Mapa je správně. Minimalizace byla odemčena.');
+        showMessage(elements.mapMessage, 'success', message);
+    }
+
+    function startMapHelp() {
+        if (state.phase !== Phase.MAP) return;
+        const nextIndex = findNextMapHelpIndex();
+        if (nextIndex === null) {
+            showMessage(elements.mapMessage, 'success', 'Všechny hodnoty v mapě už odpovídají pravdivostní tabulce. Můžeš spustit kontrolu.');
+            return;
+        }
+        startAnimation(nextIndex);
+    }
+
+    function findNextMapHelpIndex(afterIndex = -1) {
+        const mismatched = [];
+        const incomplete = [];
+
+        for (let index = 0; index < state.mapValues.length; index += 1) {
+            if (state.mapValues[index] === state.tableValues[index]) continue;
+            mismatched.push(index);
+            if (state.mapValues[index] === null) incomplete.push(index);
+        }
+
+        const candidates = incomplete.length > 0 ? incomplete : mismatched;
+        if (candidates.length === 0) return null;
+        return candidates.find(index => index > afterIndex) ?? candidates[0];
     }
 
     function startAnimation(rowIndex) {
-        if (state.phase === Phase.TABLE) return;
+        if (state.phase !== Phase.MAP || state.tableValues[rowIndex] === null) return;
         stopAnimation(false);
-        renderMap();
-
-        const row = elements.truthTable.querySelector(`tbody tr[data-index="${rowIndex}"]`);
-        if (row) row.classList.add('active-row');
-
-        elements.animationPanel.hidden = false;
-        elements.animationNextButton.textContent = 'Začít eliminaci';
-        const assignment = core.getVariableNames(state.variableCount)
-            .map((variable, bitPosition) => `${variable}=${(rowIndex >> bitPosition) & 1}`)
-            .join(', ');
-        elements.animationText.textContent = `Hledáme index ${rowIndex}: ${assignment}.`;
 
         const candidates = new Set();
-        for (let index = 0; index < core.totalCellCount(state.variableCount); index += 1) candidates.add(index);
+        for (let index = 0; index < core.totalCellCount(state.variableCount); index += 1) {
+            candidates.add(index);
+        }
 
         state.animation = {
             rowIndex,
+            sourceValue: state.tableValues[rowIndex],
             step: 0,
             phase: 'show',
             candidates
         };
 
+        hideMessage(elements.mapMessage);
+        updatePhaseUi();
+
+        const row = elements.truthTable.querySelector(`tbody tr[data-index="${rowIndex}"]`);
+        if (row) {
+            row.classList.add('active-row');
+            keepTruthTableRowVisible(row);
+        }
+
+        elements.animationPanel.hidden = false;
+        elements.animationNextButton.textContent = 'Začít hledání';
+        const assignment = core.getVariableNames(state.variableCount)
+            .map((variable, bitPosition) => `${variable}=${(rowIndex >> bitPosition) & 1}`)
+            .join(', ');
+        elements.animationText.textContent = `Řádek N = ${rowIndex} má ${assignment} a hodnotu Y = ${state.animation.sourceValue}. Postupně zúžíme mapu na jedinou buňku.`;
+
         for (const cell of getMapCells()) cell.classList.add('dimmed');
+    }
+
+    function keepTruthTableRowVisible(row) {
+        const container = row.closest('.truth-table-container');
+        if (!container) return;
+        const rowTop = row.offsetTop;
+        const rowBottom = rowTop + row.offsetHeight;
+        if (rowTop < container.scrollTop) {
+            container.scrollTop = rowTop;
+        } else if (rowBottom > container.scrollTop + container.clientHeight) {
+            container.scrollTop = rowBottom - container.clientHeight;
+        }
     }
 
     function nextAnimationStep() {
         if (!state.animation) return;
-        if (state.animation.phase === 'done') {
-            stopAnimation(true);
+
+        if (state.animation.phase === 'ready-to-transfer') {
+            transferAnimationValue();
+            return;
+        }
+
+        if (state.animation.phase === 'transferred') {
+            const nextIndex = findNextMapHelpIndex(state.animation.rowIndex);
+            if (nextIndex === null) {
+                stopAnimation(true);
+                showMessage(elements.mapMessage, 'success', 'Interaktivní přepis je hotový. Všechny hodnoty odpovídají tabulce; nyní mapu zkontroluj.');
+            } else {
+                startAnimation(nextIndex);
+            }
             return;
         }
 
@@ -673,14 +970,15 @@
         const cells = getMapCells();
 
         if (animation.step >= state.variableCount) {
+            clearGuideHighlights();
             const target = elements.mapContainer.querySelector(`.map-cell[data-index="${animation.rowIndex}"]`);
             if (target) {
                 target.classList.remove('dimmed', 'zone-valid', 'zone-invalid');
                 target.classList.add('target-pulse');
             }
-            elements.animationText.textContent = 'Cíl nalezen. Do této buňky patří hodnota ze stejného řádku pravdivostní tabulky.';
-            elements.animationNextButton.textContent = 'Hotovo';
-            animation.phase = 'done';
+            elements.animationText.textContent = `Cíl N = ${animation.rowIndex} je nalezen. Z aktivního řádku tabulky do něj patří hodnota Y = ${animation.sourceValue}.`;
+            elements.animationNextButton.textContent = `Přenést Y = ${animation.sourceValue}`;
+            animation.phase = 'ready-to-transfer';
             return;
         }
 
@@ -689,7 +987,8 @@
         const requiredBit = (animation.rowIndex >> bitPosition) & 1;
 
         if (animation.phase === 'show') {
-            elements.animationText.textContent = `Podmínka ${variable} = ${requiredBit}: zelené buňky vyhovují, červené budou vyloučeny.`;
+            highlightVariableGuide(variable, requiredBit);
+            elements.animationText.textContent = `Krok ${animation.step + 1} z ${state.variableCount}: ${variable} = ${requiredBit}. Zelené buňky vyhovují, červené v dalším kroku vyřadíme.`;
             for (const cell of cells) {
                 const index = Number(cell.dataset.index);
                 if (!animation.candidates.has(index)) continue;
@@ -697,12 +996,12 @@
                 const bit = (index >> bitPosition) & 1;
                 cell.classList.add(bit === requiredBit ? 'zone-valid' : 'zone-invalid');
             }
-            elements.animationNextButton.textContent = 'Eliminovat červené';
+            elements.animationNextButton.textContent = 'Vyřadit červené buňky';
             animation.phase = 'eliminate';
             return;
         }
 
-        elements.animationText.textContent = `Oblast s ${variable} ≠ ${requiredBit} byla vyřazena.`;
+        elements.animationText.textContent = `Buňky s ${variable} ≠ ${requiredBit} jsou vyřazené.`;
         for (const cell of cells) {
             const index = Number(cell.dataset.index);
             if (!animation.candidates.has(index)) continue;
@@ -715,18 +1014,57 @@
         }
         animation.step += 1;
         animation.phase = 'show';
-        elements.animationNextButton.textContent = 'Další podmínka';
+        elements.animationNextButton.textContent = animation.step >= state.variableCount
+            ? 'Ukázat cílovou buňku'
+            : 'Další proměnná';
+    }
+
+    function transferAnimationValue() {
+        const animation = state.animation;
+        if (!animation) return;
+
+        state.mapValues[animation.rowIndex] = animation.sourceValue;
+        state.mapErrors.delete(animation.rowIndex);
+        animation.phase = 'transferred';
+        clearGuideHighlights();
+        renderMap();
+
+        const target = elements.mapContainer.querySelector(`.map-cell[data-index="${animation.rowIndex}"]`);
+        if (target) target.classList.add('target-pulse');
+
+        const nextIndex = findNextMapHelpIndex(animation.rowIndex);
+        elements.animationText.textContent = `Hodnota Y = ${animation.sourceValue} byla přenesena do buňky N = ${animation.rowIndex}.`;
+        elements.animationNextButton.textContent = nextIndex === null
+            ? 'Dokončit nápovědu'
+            : `Pokračovat indexem N = ${nextIndex}`;
+    }
+
+    function highlightVariableGuide(variable, requiredBit) {
+        clearGuideHighlights();
+        for (const guide of elements.mapContainer.querySelectorAll(`.variable-guide[data-variable="${variable}"]`)) {
+            guide.classList.add('is-help-active');
+            guide.dataset.requiredBit = String(requiredBit);
+        }
+    }
+
+    function clearGuideHighlights() {
+        if (!elements.mapContainer) return;
+        for (const guide of elements.mapContainer.querySelectorAll('.variable-guide')) {
+            guide.classList.remove('is-help-active', 'is-help-complement');
+            delete guide.dataset.requiredBit;
+        }
     }
 
     function stopAnimation(shouldRender) {
         state.animation = null;
         if (elements.animationPanel) elements.animationPanel.hidden = true;
+        clearGuideHighlights();
         if (elements.truthTable) {
             for (const row of elements.truthTable.querySelectorAll('tbody tr.active-row')) {
                 row.classList.remove('active-row');
             }
         }
-        if (shouldRender && elements.mapContainer) renderMap();
+        if (shouldRender && elements.mapContainer) updatePhaseUi();
     }
 
     function getMapCells() {
@@ -744,6 +1082,7 @@
     function clearSelection() {
         if (state.selectedIndices.size === 0) return;
         markSolverDirty();
+        setActiveGroup(null);
         state.selectedIndices.clear();
         elements.clearSelectionButton.disabled = true;
         renderMap();
@@ -757,7 +1096,11 @@
             return;
         }
         if (!core.isPowerOfTwo(indices.length)) {
-            showMessage(elements.groupMessage, 'error', `Skupina má ${indices.length} buněk. Povolené velikosti jsou 1, 2, 4, 8 a 16.`);
+            const allowedSizes = Array.from(
+                { length: state.variableCount + 1 },
+                (_, power) => 2 ** power
+            ).join(', ');
+            showMessage(elements.groupMessage, 'error', `Skupina má ${formatCellCount(indices.length)}. Povolené velikosti jsou ${allowedSizes}.`);
             return;
         }
         if (!core.isValidGroup(indices, state.variableCount)) {
@@ -783,14 +1126,15 @@
             literalStates[variable] = LiteralState.OMITTED;
         }
 
+        const groupId = state.nextGroupId;
         state.groups.push({
-            id: state.nextGroupId,
+            id: groupId,
             indices,
             color: GROUP_COLORS[styleIndex % GROUP_COLORS.length],
-            borderStyle: GROUP_BORDER_STYLES[styleIndex % GROUP_BORDER_STYLES.length],
             literalStates
         });
         state.nextGroupId += 1;
+        state.activeGroupId = groupId;
         state.selectedIndices.clear();
         elements.clearSelectionButton.disabled = true;
 
@@ -800,7 +1144,7 @@
 
         const redundant = findRedundantGroupNumbers();
         if (redundant.length > 0) {
-            showMessage(elements.groupMessage, 'hint', `Skupina ${redundant.join(', ')} je nyní pokryta ostatními skupinami. Před finální kontrolou ji pravděpodobně odstraň.`);
+            showMessage(elements.groupMessage, 'hint', formatRedundantGroupsHint(redundant));
         }
     }
 
@@ -811,7 +1155,15 @@
         state.groups.forEach((group, position) => {
             const item = document.createElement('li');
             item.className = 'group-item';
+            item.dataset.groupId = String(group.id);
             item.style.setProperty('--group-color', group.color);
+            item.classList.toggle('is-editing', group.id === state.activeGroupId);
+            if (group.id === state.activeGroupId) item.setAttribute('aria-current', 'true');
+
+            item.addEventListener('pointerenter', () => setActiveGroup(group.id));
+            item.addEventListener('pointerleave', () => scheduleGroupDeactivation(group.id));
+            item.addEventListener('focusin', () => setActiveGroup(group.id));
+            item.addEventListener('focusout', () => scheduleGroupDeactivation(group.id));
 
             const heading = document.createElement('div');
             heading.className = 'group-heading';
@@ -849,8 +1201,11 @@
                     const literalState = group.literalStates[variable];
                     button.type = 'button';
                     button.className = `literal-button state-${literalState}`;
-                    button.textContent = formatLiteralButton(variable, literalState);
+                    button.dataset.groupId = String(group.id);
+                    button.dataset.variable = variable;
+                    renderLiteralButtonContent(button, variable, literalState);
                     button.setAttribute('aria-label', literalButtonAriaLabel(position + 1, variable, literalState));
+                    button.title = `Kliknutím měníš ${variable}? → ${variable} → negované ${variable}`;
                     button.addEventListener('click', () => toggleLiteral(group.id, variable));
                     controls.appendChild(button);
                 }
@@ -859,12 +1214,95 @@
 
             elements.groupsList.appendChild(item);
         });
+
+        refreshActiveGroupVisuals();
     }
 
-    function formatLiteralButton(variable, literalState) {
-        if (literalState === LiteralState.POSITIVE) return variable;
-        if (literalState === LiteralState.NEGATED) return `¬${variable}`;
-        return `${variable}: —`;
+    function setActiveGroup(groupId) {
+        const nextGroupId = groupId !== null && state.groups.some(group => group.id === groupId)
+            ? groupId
+            : null;
+
+        if (state.activeGroupId === nextGroupId) {
+            refreshActiveGroupVisuals();
+            return;
+        }
+
+        state.activeGroupId = nextGroupId;
+        refreshActiveGroupVisuals();
+        updateEquation();
+    }
+
+    function refreshActiveGroupVisuals() {
+        const activeGroup = state.groups.find(group => group.id === state.activeGroupId) ?? null;
+        const activeIndices = activeGroup ? new Set(activeGroup.indices) : null;
+
+        for (const cell of getMapCells()) {
+            const active = Boolean(activeIndices?.has(Number(cell.dataset.index)));
+            cell.classList.toggle('group-edit-active', active);
+            if (active) cell.style.setProperty('--active-group-color', activeGroup.color);
+            else cell.style.removeProperty('--active-group-color');
+        }
+
+        for (const shape of elements.mapContainer.querySelectorAll('.group-shape[data-group-id]')) {
+            const active = Number(shape.dataset.groupId) === state.activeGroupId;
+            shape.classList.toggle('is-active', active);
+            shape.classList.toggle('is-muted', state.activeGroupId !== null && !active);
+        }
+
+        for (const badge of elements.mapContainer.querySelectorAll('.group-badge[data-group-id]')) {
+            const active = Number(badge.dataset.groupId) === state.activeGroupId;
+            badge.classList.toggle('is-active', active);
+            badge.classList.toggle('is-muted', state.activeGroupId !== null && !active);
+        }
+
+        for (const item of elements.groupsList.querySelectorAll('.group-item[data-group-id]')) {
+            const active = Number(item.dataset.groupId) === state.activeGroupId;
+            item.classList.toggle('is-editing', active);
+            if (active) item.setAttribute('aria-current', 'true');
+            else item.removeAttribute('aria-current');
+        }
+    }
+
+    function scheduleGroupDeactivation(groupId) {
+        window.requestAnimationFrame(() => {
+            const currentItem = elements.groupsList.querySelector(`.group-item[data-group-id="${groupId}"]`);
+            const stillEditing = currentItem
+                && (currentItem.matches(':hover') || currentItem.contains(document.activeElement));
+            if (!stillEditing && state.activeGroupId === groupId) setActiveGroup(null);
+        });
+    }
+
+    function renderLiteralButtonContent(button, variable, literalState) {
+        button.replaceChildren();
+        if (literalState === LiteralState.OMITTED) {
+            const placeholder = document.createElement('span');
+            placeholder.className = 'literal-placeholder';
+            const variableLabel = document.createElement('span');
+            variableLabel.className = 'literal-placeholder-symbol';
+            variableLabel.textContent = variable;
+            const questionMark = document.createElement('span');
+            questionMark.className = 'literal-placeholder-question';
+            questionMark.textContent = '?';
+            placeholder.append(variableLabel, questionMark);
+            placeholder.setAttribute('aria-hidden', 'true');
+            button.appendChild(placeholder);
+            return;
+        }
+        button.appendChild(createLiteralSymbol(
+            variable,
+            literalState === LiteralState.NEGATED
+        ));
+    }
+
+    function createLiteralSymbol(variable, negated) {
+        const literal = document.createElement('span');
+        literal.className = negated
+            ? 'literal-symbol is-negated'
+            : 'literal-symbol';
+        literal.textContent = variable;
+        literal.setAttribute('aria-label', negated ? `negované ${variable}` : variable);
+        return literal;
     }
 
     function literalButtonAriaLabel(groupNumber, variable, literalState) {
@@ -872,7 +1310,7 @@
             ? 'přímá forma'
             : literalState === LiteralState.NEGATED
                 ? 'negovaná forma'
-                : 'vynecháno';
+                : 'nezahrnuta ve výrazu';
         return `Skupina ${groupNumber}, proměnná ${variable}: ${stateLabel}. Změnit stav.`;
     }
 
@@ -881,45 +1319,81 @@
         const group = state.groups.find(candidate => candidate.id === groupId);
         if (!group) return;
 
+        setActiveGroup(groupId);
         const order = [LiteralState.OMITTED, LiteralState.POSITIVE, LiteralState.NEGATED];
         const current = order.indexOf(group.literalStates[variable]);
         group.literalStates[variable] = order[(current + 1) % order.length];
         renderGroups();
         updateEquation();
+
+        const editedButton = elements.groupsList.querySelector(
+            `.group-item[data-group-id="${groupId}"] .literal-button[data-variable="${variable}"]`
+        );
+        editedButton?.focus({ preventScroll: true });
     }
 
     function removeGroup(groupId) {
         markSolverDirty();
         state.groups = state.groups.filter(group => group.id !== groupId);
+        if (state.activeGroupId === groupId) state.activeGroupId = null;
         renderMap();
         renderGroups();
         updateEquation();
     }
 
     function updateEquation() {
+        const output = elements.finalEquation;
+        output.replaceChildren();
+
         if (state.phase === Phase.TABLE || state.phase === Phase.MAP) {
-            elements.finalEquation.textContent = 'Y = …';
+            setEquationText('Y = …');
             return;
         }
 
         if (state.taskIndices.length === 0 && state.groups.length === 0) {
-            elements.finalEquation.textContent = `Y = ${state.solveMode === 'minterm' ? '0' : '1'}`;
+            setEquationText(`Y = ${state.solveMode === 'minterm' ? '0' : '1'}`);
             return;
         }
 
         if (state.groups.length === 0) {
-            elements.finalEquation.textContent = 'Y = …';
+            setEquationText('Y = …');
             return;
         }
 
-        const terms = state.groups.map(group => formatUserGroupTerm(group));
+        output.appendChild(document.createTextNode('Y = '));
         const joiner = state.solveMode === 'minterm' ? ' + ' : ' · ';
-        elements.finalEquation.textContent = `Y = ${terms.join(joiner)}`;
+        const accessibleTerms = [];
+
+        state.groups.forEach((group, position) => {
+            if (position > 0) output.appendChild(document.createTextNode(joiner));
+            const model = getUserGroupTermModel(group);
+            const term = document.createElement('span');
+            term.className = 'equation-term';
+            term.style.setProperty('--group-color', group.color);
+            term.classList.toggle('is-editing', group.id === state.activeGroupId);
+            appendUserGroupTerm(term, model);
+            output.appendChild(term);
+            accessibleTerms.push(formatAccessibleGroupTerm(model));
+        });
+
+        const accessibleJoiner = state.solveMode === 'minterm' ? ' plus ' : ' krát ';
+        output.setAttribute('aria-label', `Y se rovná ${accessibleTerms.join(accessibleJoiner)}`);
     }
 
-    function formatUserGroupTerm(group) {
+    function setEquationText(text) {
+        elements.finalEquation.textContent = text;
+        elements.finalEquation.setAttribute('aria-label', text);
+    }
+
+    function getUserGroupTermModel(group) {
         const logic = core.getGroupLogic(group.indices, state.variableCount);
-        if (logic.involvedVars.length === 0) return state.solveMode === 'minterm' ? '1' : '0';
+        if (logic.involvedVars.length === 0) {
+            return {
+                constant: state.solveMode === 'minterm' ? '1' : '0',
+                literals: [],
+                complete: true
+            };
+        }
 
         const selectedVariables = core.getVariableNames(state.variableCount)
             .filter(variable => group.literalStates[variable] !== LiteralState.OMITTED);
@@ -927,17 +1401,57 @@
         const completeVariableSet = selectedVariables.length === expectedSet.size
             && selectedVariables.every(variable => expectedSet.has(variable));
 
-        const literals = selectedVariables.map(variable => (
-            group.literalStates[variable] === LiteralState.NEGATED ? `¬${variable}` : variable
-        ));
+        return {
+            constant: null,
+            literals: selectedVariables.map(variable => ({
+                variable,
+                negated: group.literalStates[variable] === LiteralState.NEGATED
+            })),
+            complete: completeVariableSet
+        };
+    }
 
-        if (state.solveMode === 'minterm') {
-            if (literals.length === 0) return '[?]';
-            return `${literals.join('·')}${completeVariableSet ? '' : '·?'}`;
+    function appendUserGroupTerm(parent, model) {
+        if (model.constant !== null) {
+            parent.appendChild(document.createTextNode(model.constant));
+            return;
         }
 
-        if (literals.length === 0) return '(?)';
-        return `(${literals.join(' + ')}${completeVariableSet ? '' : ' + ?'})`;
+        if (state.solveMode === 'minterm') {
+            if (model.literals.length === 0) {
+                parent.appendChild(document.createTextNode('[?]'));
+                return;
+            }
+            model.literals.forEach((literal, position) => {
+                if (position > 0) parent.appendChild(document.createTextNode('·'));
+                parent.appendChild(createLiteralSymbol(literal.variable, literal.negated));
+            });
+            if (!model.complete) parent.appendChild(document.createTextNode('·?'));
+            return;
+        }
+
+        parent.appendChild(document.createTextNode('('));
+        if (model.literals.length === 0) {
+            parent.appendChild(document.createTextNode('?'));
+        } else {
+            model.literals.forEach((literal, position) => {
+                if (position > 0) parent.appendChild(document.createTextNode(' + '));
+                parent.appendChild(createLiteralSymbol(literal.variable, literal.negated));
+            });
+            if (!model.complete) parent.appendChild(document.createTextNode(' + ?'));
+        }
+        parent.appendChild(document.createTextNode(')'));
+    }
+
+    function formatAccessibleGroupTerm(model) {
+        if (model.constant !== null) return model.constant;
+        if (model.literals.length === 0) return 'nevyplněný člen';
+        const operator = state.solveMode === 'minterm' ? ' krát ' : ' plus ';
+        const literals = model.literals.map(literal => (
+            literal.negated ? `negované ${literal.variable}` : literal.variable
+        ));
+        const suffix = model.complete ? '' : ' a nevyplněná část';
+        return `${literals.join(operator)}${suffix}`;
     }
 
     function checkFinalResult() {
@@ -959,11 +1473,14 @@
 
         const coverage = core.coverTargets(state.groups, state.taskIndices, state.variableCount);
         if (coverage.outside.length > 0) {
-            showMessage(elements.finalMessage, 'error', `Skupiny zasahují i do necílových buněk ${formatIndices(coverage.outside)}.`);
+            showMessage(elements.finalMessage, 'error', `Skupiny zasahují i do necílových buněk: ${formatIndices(coverage.outside)}.`);
             return;
         }
         if (coverage.missing.length > 0) {
-            showMessage(elements.finalMessage, 'error', `Nejsou pokryté cílové buňky ${formatIndices(coverage.missing)}.`);
+            const message = coverage.missing.length === 1
+                ? `Není pokryta cílová buňka s indexem ${coverage.missing[0]}.`
+                : `Nejsou pokryty cílové buňky s indexy ${formatIndices(coverage.missing)}.`;
+            showMessage(elements.finalMessage, 'error', message);
             return;
         }
 
@@ -981,7 +1498,10 @@
 
         const redundant = findRedundantGroupNumbers();
         if (redundant.length > 0) {
-            showMessage(elements.finalMessage, 'error', `Nadbytečné skupiny: ${redundant.join(', ')}. Jejich buňky už pokrývají ostatní skupiny.`);
+            const message = redundant.length === 1
+                ? `Nadbytečná skupina: ${redundant[0]}. Její buňky už pokrývají ostatní skupiny.`
+                : `Nadbytečné skupiny: ${redundant.join(', ')}. Jejich buňky už pokrývají ostatní skupiny.`;
+            showMessage(elements.finalMessage, 'error', message);
             return;
         }
 
@@ -996,12 +1516,12 @@
         if (core.compareCost(userCost, optimalCost) > 0) {
             const termDifference = userCost.terms - optimalCost.terms;
             const reason = termDifference > 0
-                ? `používá o ${termDifference} ${termDifference === 1 ? 'člen' : 'členy'} více`
+                ? `používá o ${formatCount(termDifference, 'člen', 'členy', 'členů')} více`
                 : `používá více literálů (${userCost.literals} místo ${optimalCost.literals})`;
             showMessage(
                 elements.finalMessage,
                 'error',
-                `Výraz je logicky správný, ale není minimální: ${reason}. Tvoje cena je ${formatCost(userCost)}, minimum je ${formatCost(optimalCost)}.`
+                `Výraz je logicky správný, ale není minimální: ${reason}. Tvé řešení má ${formatCost(userCost)}, zatímco minimální řešení má ${formatCost(optimalCost)}.`
             );
             return;
         }
@@ -1065,7 +1585,7 @@
         const selection = Array.from(state.selectedIndices).sort((a, b) => a - b);
         if (selection.length > 0) {
             if (!core.isPowerOfTwo(selection.length)) {
-                showMessage(elements.hintMessage, 'hint', `Aktuální výběr má ${selection.length} buněk. Doplň nebo odeber buňky tak, aby velikost byla mocninou dvou.`);
+                showMessage(elements.hintMessage, 'hint', `Aktuální výběr má ${formatCellCount(selection.length)}. Doplň nebo odeber buňky tak, aby velikost byla mocninou dvou.`);
                 return;
             }
             if (!core.isValidGroup(selection, state.variableCount)) {
@@ -1103,7 +1623,7 @@
                 showMessage(
                     elements.hintMessage,
                     'hint',
-                    `Začni nepokrytým indexem ${coverage.missing[0]}. Jedna vhodná maximální skupina má ${candidate.cellCount} buněk: ${formatIndices(candidate.indices)}.`
+                    `Začni nepokrytým indexem ${coverage.missing[0]}. Jedna vhodná maximální skupina má ${formatCellCount(candidate.cellCount)}: ${formatIndices(candidate.indices)}.`
                 );
                 return;
             }
@@ -1131,12 +1651,12 @@
             showMessage(
                 elements.hintMessage,
                 'hint',
-                `Pokrytí je úplné, ale minimum je ${formatCost(optimalCost)}. Zkus přeuspořádat skupiny; zvýrazněná oblast patří do jednoho optimálního řešení.`
+                `Pokrytí je úplné, ale minimální řešení má ${formatCost(optimalCost)}. Zkus přeuspořádat skupiny; zvýrazněná oblast patří do jednoho optimálního řešení.`
             );
             return;
         }
 
-        showMessage(elements.hintMessage, 'hint', 'Pokrytí i proměnné vypadají správně. Proveď finální kontrolu.');
+        showMessage(elements.hintMessage, 'hint', 'Pokrytí i volba proměnných vypadají správně. Proveď závěrečnou kontrolu.');
     }
 
     function highlightIndices(indices) {
@@ -1189,10 +1709,24 @@
         return indices.length === 0 ? '∅' : indices.join(', ');
     }
 
+    function formatCount(count, singular, few, many) {
+        const word = count === 1 ? singular : count >= 2 && count <= 4 ? few : many;
+        return `${count} ${word}`;
+    }
+
+    function formatCellCount(count) {
+        return formatCount(count, 'buňku', 'buňky', 'buněk');
+    }
+
+    function formatRedundantGroupsHint(groupNumbers) {
+        if (groupNumbers.length === 1) {
+            return `Skupina ${groupNumbers[0]} je pravděpodobně nadbytečná: všechny její buňky už pokrývají ostatní skupiny. Před závěrečnou kontrolou ji zkus odstranit.`;
+        }
+        return `Skupiny ${groupNumbers.join(', ')} jsou pravděpodobně nadbytečné: všechny jejich buňky už pokrývají ostatní skupiny. Před závěrečnou kontrolou je zkus odstranit.`;
+    }
+
     function formatCost(cost) {
-        const termWord = cost.terms === 1 ? 'člen' : cost.terms >= 2 && cost.terms <= 4 ? 'členy' : 'členů';
-        const literalWord = cost.literals === 1 ? 'literál' : cost.literals >= 2 && cost.literals <= 4 ? 'literály' : 'literálů';
-        return `${cost.terms} ${termWord}, ${cost.literals} ${literalWord}`;
+        return `${formatCount(cost.terms, 'člen', 'členy', 'členů')}, ${formatCount(cost.literals, 'literál', 'literály', 'literálů')}`;
     }
 
     function arraysEqual(left, right) {

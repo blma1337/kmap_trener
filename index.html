@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#1b1715">
-    <title>Karnaughova mapa – kompletní trenažér 2.1</title>
+    <title>Karnaughova mapa – kompletní trenažér 2.9</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header class="app-header">
         <p class="eyebrow">Interaktivní výuka logických funkcí</p>
         <h1>Karnaughova mapa: kompletní trenažér</h1>
-        <p class="lead">Od pravdivostní tabulky přes Grayův kód až po přesně minimální SOP nebo POS výraz pro 2–5 proměnných.</p>
+        <p class="lead">Od pravdivostní tabulky přes Karnaughovu mapu až k minimálnímu výrazu ve tvaru SOP nebo POS pro 2–5 proměnných.</p>
     </header>
 
     <section class="task-controls" aria-labelledby="task-settings-title">
@@ -39,9 +39,9 @@
         <div class="control-field">
             <label for="difficultySelect">Obtížnost</label>
             <select id="difficultySelect">
-                <option value="easy">Začátečník</option>
+                <option value="easy">Lehká</option>
                 <option value="medium" selected>Střední</option>
-                <option value="hard">Pokročilý</option>
+                <option value="hard">Těžká</option>
             </select>
         </div>
 
@@ -67,7 +67,7 @@
                 <span class="step-state" id="tableStepState">Aktivní</span>
             </div>
 
-            <p class="instruction">Vyplň sloupec Y. Každá buňka přepíná stav <strong>? → 0 → 1</strong>.</p>
+            <p class="instruction">Vyplň sloupec Y. Kliknutím na buňku přepínáš hodnotu <strong>? → 0 → 1</strong>.</p>
 
             <div class="task-card">
                 <span>Zadání</span>
@@ -97,12 +97,16 @@
                 <span class="step-state" id="mapStepState">Uzamčeno</span>
             </div>
 
-            <p class="instruction">Přenes hodnoty z tabulky podle Grayova pořadí. Ikona oka ukáže postup hledání konkrétní buňky.</p>
+            <p class="instruction">Přenes hodnotu Y z každého řádku tabulky do buňky se stejným indexem N. Ikona oka nebo interaktivní nápověda tě provede hledáním buňky krok za krokem.</p>
 
             <div class="map-stage">
                 <div id="mapContainer" class="map-container"></div>
             </div>
-            <p class="map-guide-note">Čáry kolem mapy označují oblasti, ve kterých má daná proměnná hodnotu 1.</p>
+            <p class="map-guide-note">Čáry nad mapou a vlevo označují oblasti, ve kterých má daná proměnná hodnotu 1.</p>
+
+            <div class="map-help-actions">
+                <button id="mapHelpButton" type="button" class="button button-hint">🧭 Interaktivní nápověda k přepisu</button>
+            </div>
 
             <div id="animationPanel" class="animation-panel" hidden>
                 <p id="animationText">Připraveno.</p>
@@ -112,8 +116,9 @@
                 </div>
             </div>
 
-            <div class="panel-actions">
+            <div class="panel-actions stacked-actions">
                 <button id="checkMapButton" type="button" class="button button-primary">Zkontrolovat přepis do mapy</button>
+                <button id="skipMapButton" type="button" class="button button-ghost">⏩ Přeskočit vyplnění mapy</button>
             </div>
             <div id="mapMessage" class="status-message" role="status" aria-live="polite"></div>
         </section>
@@ -147,14 +152,14 @@
             </div>
 
             <div class="panel-actions">
-                <button id="checkFinalButton" type="button" class="button button-success">🏆 Finální kontrola</button>
+                <button id="checkFinalButton" type="button" class="button button-success">🏆 Závěrečná kontrola</button>
             </div>
             <div id="finalMessage" class="status-message" role="status" aria-live="polite"></div>
         </section>
     </main>
 
     <footer class="app-footer">
-        <p>Aplikace pracuje přesně pro 2–5 proměnných. Skupiny mohou spojovat protilehlé okraje mapy.</p>
+        <p>Aplikace podporuje 2–5 proměnných a používá přesnou minimalizaci. Skupiny mohou spojovat protilehlé okraje mapy.</p>
     </footer>
 
     <script src="src/core.js"></script>
