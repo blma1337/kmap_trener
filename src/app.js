@@ -2,6 +2,8 @@
     'use strict';
 
     const core = window.KMapCore;
+    const presentation = window.KMapPresentation;
+    if (!presentation) throw new Error('Prezentační modul nebyl načten.');
     if (!core) throw new Error('Logické jádro KMapCore nebylo načteno.');
 
     const Phase = Object.freeze({
@@ -44,6 +46,105 @@
     };
 
     const elements = {};
+    let geometryObserver = null;
+    let geometryFrame = null;
+    let currentMapGeometry = null;
+
+    function scheduleGeometryRefresh() {
+        if (geometryFrame !== null) return;
+        geometryFrame = window.requestAnimationFrame(() => {
+            geometryFrame = null;
+            refreshMapGeometry();
+        });
+    }
+
+    function refreshMapGeometry() {
+        const context = currentMapGeometry;
+        if (!context || !context.diagram.isConnected) return;
+        const { diagram, table, divider, layout, lanes } = context;
+        if (divider) positionFiveVariableDivider(diagram, table, divider);
+        renderGroupOverlay(diagram, layout, lanes);
+        refreshActiveGroupVisuals();
+        if (state.animation && ['ready-to-transfer', 'transferred'].includes(state.animation.phase)) {
+            keepMapCellVisible(state.animation.rowIndex);
+        }
+    }
+
+    function observeMapGeometry(context) {
+        geometryObserver?.disconnect();
+        if (geometryFrame !== null) window.cancelAnimationFrame(geometryFrame);
+        geometryFrame = null;
+        currentMapGeometry = context;
+        if (typeof ResizeObserver === 'function') {
+            geometryObserver = new ResizeObserver(scheduleGeometryRefresh);
+            // Pozorujeme i vodicí pruhy a mobilní výřez, nikoli jen okno.
+            for (const element of [context.diagram, context.table, elements.mapContainer.parentElement]) {
+                geometryObserver.observe(element);
+            }
+        }
+        refreshMapGeometry();
+    }
+
+    function diagramCoordinates(diagram) {
+        const rect = diagram.getBoundingClientRect();
+        const style = window.getComputedStyle(diagram);
+        const width = parseFloat(style.width);
+        const height = parseFloat(style.height);
+        const scaleX = rect.width / width;
+        const scaleY = rect.height / height;
+        return {
+            width, height,
+            // CSS zoom/transform nesmí být započten dvakrát při převodu do SVG.
+            rectOf(element) {
+                const box = element.getBoundingClientRect();
+                return {
+                    left: (box.left - rect.left) / scaleX,
+                    top: (box.top - rect.top) / scaleY,
+                    right: (box.right - rect.left) / scaleX,
+                    bottom: (box.bottom - rect.top) / scaleY,
+                    width: box.width / scaleX, height: box.height / scaleY
+                };
+            }
+        };
+    }
+
+    function captureCellFocus(container) {
+        const active = document.activeElement;
+        if (!container.contains(active)) return null;
+        const index = active.closest('[data-index]')?.dataset.index;
+        if (index === undefined) return null;
+        const kind = active.classList.contains('map-cell') ? 'map-cell'
+            : active.classList.contains('output-button') ? 'output-button' : 'eye-button';
+        return { index, kind };
+    }
+
+    function restoreCellFocus(container, saved) {
+        if (!saved) return;
+        const target = saved.kind === 'map-cell'
+            ? container.querySelector(`.map-cell[data-index="${saved.index}"]`)
+            : container.querySelector(`tr[data-index="${saved.index}"] .${saved.kind}`);
+        if (target && !target.disabled) target.focus({ preventScroll: true });
+    }
+
+    function keepMapCellVisible(index) {
+        const cell = elements.mapContainer.querySelector(`.map-cell[data-index="${index}"]`)?.closest('td');
+        const stage = elements.mapContainer.closest('.map-stage');
+        if (!cell || !stage) return;
+        const frame = stage.getBoundingClientRect();
+        const box = cell.getBoundingClientRect();
+        const css = window.getComputedStyle(stage);
+        const scaleX = frame.width / parseFloat(css.width);
+        const scaleY = frame.height / parseFloat(css.height);
+        const left = frame.left + (stage.clientLeft + 8) * scaleX;
+        const right = frame.left + (stage.clientLeft + stage.clientWidth - 8) * scaleX;
+        const top = frame.top + (stage.clientTop + 8) * scaleY;
+        const bottom = frame.top + (stage.clientTop + stage.clientHeight - 8) * scaleY;
+        if (box.left < left) stage.scrollLeft += (box.left - left) / scaleX;
+        else if (box.right > right) stage.scrollLeft += (box.right - right) / scaleX;
+        if (box.top < top) stage.scrollTop += (box.top - top) / scaleY;
+        else if (box.bottom > bottom) stage.scrollTop += (box.bottom - bottom) / scaleY;
+    }
+
 
     function init() {
         cacheElements();
@@ -104,6 +205,9 @@
         elements.clearSelectionButton.addEventListener('click', clearSelection);
         elements.hintButton.addEventListener('click', showSmartHint);
         elements.checkFinalButton.addEventListener('click', checkFinalResult);
+        window.addEventListener('resize', scheduleGeometryRefresh, { passive: true });
+        window.visualViewport?.addEventListener('resize', scheduleGeometryRefresh, { passive: true });
+        document.fonts?.ready.then(scheduleGeometryRefresh);
     }
 
     function syncSettingsFromControls() {
@@ -305,6 +409,9 @@
 
     function renderTruthTable() {
         const table = elements.truthTable;
+        const savedFocus = captureCellFocus(table);
+        const scroller = table.closest('.truth-table-container');
+        const savedScroll = scroller.scrollTop;
         table.replaceChildren();
 
         const caption = document.createElement('caption');
@@ -380,6 +487,8 @@
         }
 
         table.appendChild(tbody);
+        scroller.scrollTop = savedScroll;
+        restoreCellFocus(table, savedFocus);
     }
 
     function checkTruthTable() {
@@ -424,6 +533,9 @@
     }
 
     function renderMap() {
+        const savedFocus = captureCellFocus(elements.mapContainer);
+        const stage = elements.mapContainer.closest('.map-stage');
+        const savedScroll = { left: stage.scrollLeft, top: stage.scrollTop };
         const layout = core.getMapLayout(state.variableCount);
         const diagram = document.createElement('div');
         diagram.className = 'kmap-diagram';
@@ -451,6 +563,8 @@
         const outlineLaneByGroupId = new Map(
             state.groups.map((group, groupPosition) => [group.id, outlineLanes[groupPosition]])
         );
+        const laneCount = outlineLanes.length ? Math.max(...outlineLanes) + 1 : 0;
+        diagram.style.setProperty('--dense-cell-size', `${presentation.minimumCellSize(laneCount)}px`);
 
         for (let rowPosition = 0; rowPosition < layout.rows.length; rowPosition += 1) {
             const row = document.createElement('tr');
@@ -495,6 +609,15 @@
                         badge.textContent = String(groupPosition + 1);
                         badges.appendChild(badge);
                     });
+                    if (participating.length > 3) {
+                        button.classList.add('has-many-groups');
+                        const summary = document.createElement('span');
+                        summary.className = 'group-badge-summary';
+                        summary.dataset.count = String(participating.length);
+                        summary.textContent = `×${participating.length}`;
+                        summary.title = `Skupiny: ${participating.map(entry => entry.groupPosition + 1).join(', ')}`;
+                        badges.appendChild(summary);
+                    }
                     button.appendChild(badges);
                 }
 
@@ -528,9 +651,10 @@
         elements.mapPanel.classList.toggle('has-five-variable-map', state.variableCount === 5);
         elements.mapContainer.classList.toggle('map-container-five', state.variableCount === 5);
         elements.mapContainer.replaceChildren(diagram);
-        if (fiveVariableDivider) positionFiveVariableDivider(diagram, table, fiveVariableDivider);
-        renderGroupOverlay(diagram, layout, outlineLaneByGroupId);
-        refreshActiveGroupVisuals();
+        observeMapGeometry({ diagram, table, divider: fiveVariableDivider, layout, lanes: outlineLaneByGroupId });
+        stage.scrollLeft = savedScroll.left;
+        stage.scrollTop = savedScroll.top;
+        restoreCellFocus(elements.mapContainer, savedFocus);
     }
 
     function createVariableGuideLayer(guides, orientation) {
@@ -571,66 +695,64 @@
     }
 
     function renderGroupOverlay(diagram, layout, outlineLaneByGroupId) {
+        diagram.querySelector('.group-overlay')?.remove();
         if (state.groups.length === 0) return;
-
         const table = diagram.querySelector('.kmap-table');
-        const firstCell = table?.querySelector('.map-cell');
-        if (!table || !firstCell) return;
-
-        const tableRect = table.getBoundingClientRect();
-        const diagramRect = diagram.getBoundingClientRect();
-        const cellRect = firstCell.getBoundingClientRect();
-        const mapOriginX = tableRect.left - diagramRect.left;
-        const mapOriginY = tableRect.top - diagramRect.top;
-        const cellWidth = cellRect.width;
-        const cellHeight = cellRect.height;
-        const stubLength = Math.max(14, Math.round(Math.min(cellWidth, cellHeight) * 0.34));
-        const radius = Math.max(5, Math.round(Math.min(cellWidth, cellHeight) * 0.12));
-
+        if (!table) return;
+        const coordinates = diagramCoordinates(diagram);
+        const sizes = [...table.querySelectorAll('td')].map(cell => coordinates.rectOf(cell));
+        const minCellSize = Math.min(...sizes.flatMap(rect => [rect.width, rect.height]));
+        const laneCount = Math.max(...outlineLaneByGroupId.values()) + 1;
+        const insets = presentation.outlineInsets(laneCount, minCellSize);
+        const radius = Math.max(5, Math.round(minCellSize * 0.12));
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.classList.add('group-overlay');
         svg.setAttribute('aria-hidden', 'true');
-        svg.setAttribute('viewBox', `0 0 ${Math.ceil(diagramRect.width)} ${Math.ceil(diagramRect.height)}`);
-        svg.setAttribute('width', `${Math.ceil(diagramRect.width)}`);
-        svg.setAttribute('height', `${Math.ceil(diagramRect.height)}`);
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '100%');
+        svg.setAttribute('viewBox', `0 0 ${coordinates.width} ${coordinates.height}`);
 
         state.groups.forEach((group, groupPosition) => {
             const lane = outlineLaneByGroupId.get(group.id) ?? 0;
-            const inset = 2 + lane * 3;
-            const strokeWidth = state.activeGroupId === group.id ? 3 : 2;
+            const inset = insets[lane];
             const visual = core.getGroupVisualGeometry(group.indices, state.variableCount);
             const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             wrapper.classList.add('group-shape');
             wrapper.dataset.groupId = String(group.id);
+            wrapper.dataset.outlineLane = String(lane);
+            wrapper.dataset.inset = String(inset);
             wrapper.style.setProperty('--group-color', group.color);
             wrapper.setAttribute('stroke', group.color);
             wrapper.setAttribute('fill', 'none');
             wrapper.setAttribute('stroke-linecap', 'round');
             wrapper.setAttribute('stroke-linejoin', 'round');
-            wrapper.setAttribute('stroke-width', String(strokeWidth));
+            wrapper.setAttribute('stroke-width', '2');
 
             visual.boxes.forEach(box => {
-                const x = mapOriginX + box.columnStart * cellWidth + inset;
-                const y = mapOriginY + box.rowStart * cellHeight + inset;
-                const width = box.columnSpan * cellWidth - inset * 2;
-                const height = box.rowSpan * cellHeight - inset * 2;
+                // Skutečné hrany krajních buněk, ne násobení šířky první buňky.
+                const first = coordinates.rectOf(table.rows[box.rowStart].cells[box.columnStart]);
+                const last = coordinates.rectOf(table.rows[box.rowStart + box.rowSpan - 1]
+                    .cells[box.columnStart + box.columnSpan - 1]);
+                const x = first.left + inset;
+                const y = first.top + inset;
+                const width = last.right - first.left - 2 * inset;
+                const height = last.bottom - first.top - 2 * inset;
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 path.classList.add('group-outline');
                 path.dataset.groupId = String(group.id);
                 path.dataset.groupIndex = String(groupPosition + 1);
+                path.dataset.width = String(width);
+                path.dataset.height = String(height);
                 path.dataset.openSides = [
-                    box.openTop ? 'top' : '',
-                    box.openRight ? 'right' : '',
-                    box.openBottom ? 'bottom' : '',
-                    box.openLeft ? 'left' : ''
+                    box.openTop ? 'top' : '', box.openRight ? 'right' : '',
+                    box.openBottom ? 'bottom' : '', box.openLeft ? 'left' : ''
                 ].filter(Boolean).join(',');
-                path.setAttribute('d', createOpenGroupPath(x, y, width, height, radius, stubLength, box));
+                // Přesah je vždy 14 px ZA mapou, nezkracuje se s vyšší kolejí.
+                path.setAttribute('d', createOpenGroupPath(x, y, width, height, radius, 14 + inset, box));
                 wrapper.appendChild(path);
             });
-
             svg.appendChild(wrapper);
         });
-
         diagram.appendChild(svg);
     }
 
@@ -758,45 +880,24 @@
     }
 
     function positionFiveVariableDivider(diagram, table, divider) {
-        const firstRow = table.rows?.[0];
-        if (!firstRow || firstRow.cells.length < 5) return;
-
-        const leftCell = firstRow.cells[3];
-        const rightCell = firstRow.cells[4];
-        const leftButton = leftCell.querySelector('.map-cell');
-        const diagramRect = diagram.getBoundingClientRect();
-        const leftRect = leftCell.getBoundingClientRect();
-        const rightRect = rightCell.getBoundingClientRect();
-        const tableRect = table.getBoundingClientRect();
-        const gridBorderWidth = leftButton
-            ? (parseFloat(getComputedStyle(leftButton).borderRightWidth) || 1)
-            : 1;
-        // Překryjeme skutečný border-right 4. sloupce. Nejde jen o
-        // matematický střed tabulky: hranice mřížky je kreslena uvnitř
-        // předchozí buňky, takže její levý okraj je o šířku borderu vlevo.
-        const axisLeft = leftRect.right - diagramRect.left - gridBorderWidth;
-        const expectedBoundary = rightRect.left - diagramRect.left;
-        const guideRows = Number(getComputedStyle(document.documentElement).getPropertyValue('--column-guide-count').trim() || 0);
-        const guideLaneHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--guide-lane-height')) || 20;
-        const topGuideBottom = guideRows * guideLaneHeight;
-        const topSegment = divider.querySelector('.five-variable-divider-segment.top');
-        const bottomSegment = divider.querySelector('.five-variable-divider-segment.bottom');
-        const tableTop = tableRect.top - diagramRect.top;
-        const tableBottom = tableRect.bottom - diagramRect.top;
-        const cellHeight = leftRect.height;
-
-        divider.style.left = `${axisLeft}px`;
-        divider.style.setProperty('--divider-width', `${gridBorderWidth}px`);
-        divider.dataset.axisBoundary = String(expectedBoundary);
-        if (topSegment) {
-            topSegment.style.top = `${Math.round(topGuideBottom - 14)}px`;
-            topSegment.style.height = `${Math.round((tableTop + cellHeight * 0.75) - (topGuideBottom - 14))}px`;
-        }
-        if (bottomSegment) {
-            const bottomStart = tableBottom - cellHeight * 0.75;
-            bottomSegment.style.top = `${Math.round(bottomStart)}px`;
-            bottomSegment.style.height = `${Math.round((tableBottom + 12) - bottomStart)}px`;
-        }
+        const firstRow = table.rows[0];
+        if (!firstRow || firstRow.cells.length !== 8) return;
+        const coordinates = diagramCoordinates(diagram);
+        const reference = firstRow.cells[3];
+        const button = reference.querySelector('.map-cell');
+        const border = parseFloat(window.getComputedStyle(button).borderRightWidth) || 1;
+        const cell = coordinates.rectOf(reference);
+        const grid = coordinates.rectOf(table);
+        divider.style.left = `${cell.right - border}px`;
+        divider.style.setProperty('--divider-width', `${border}px`);
+        divider.dataset.axisBoundary = String(cell.right);
+        const top = divider.querySelector('.top');
+        const bottom = divider.querySelector('.bottom');
+        // Dva krátké náznaky; žádný tah ani podklad uvnitř mřížky.
+        top.style.top = `${grid.top - 18}px`;
+        top.style.height = '15px';
+        bottom.style.top = `${grid.bottom + 3}px`;
+        bottom.style.height = '15px';
     }
 
     function handleMapClick(index) {
@@ -932,6 +1033,7 @@
         elements.animationText.textContent = `Řádek N = ${rowIndex} má ${assignment} a hodnotu Y = ${state.animation.sourceValue}. Postupně zúžíme mapu na jedinou buňku.`;
 
         for (const cell of getMapCells()) cell.classList.add('dimmed');
+        elements.animationNextButton.focus({ preventScroll: true });
     }
 
     function keepTruthTableRowVisible(row) {
@@ -975,6 +1077,7 @@
             if (target) {
                 target.classList.remove('dimmed', 'zone-valid', 'zone-invalid');
                 target.classList.add('target-pulse');
+                keepMapCellVisible(animation.rowIndex);
             }
             elements.animationText.textContent = `Cíl N = ${animation.rowIndex} je nalezen. Z aktivního řádku tabulky do něj patří hodnota Y = ${animation.sourceValue}.`;
             elements.animationNextButton.textContent = `Přenést Y = ${animation.sourceValue}`;
@@ -1030,7 +1133,10 @@
         renderMap();
 
         const target = elements.mapContainer.querySelector(`.map-cell[data-index="${animation.rowIndex}"]`);
-        if (target) target.classList.add('target-pulse');
+        if (target) {
+            target.classList.add('target-pulse');
+            keepMapCellVisible(animation.rowIndex);
+        }
 
         const nextIndex = findNextMapHelpIndex(animation.rowIndex);
         elements.animationText.textContent = `Hodnota Y = ${animation.sourceValue} byla přenesena do buňky N = ${animation.rowIndex}.`;
@@ -1056,6 +1162,7 @@
     }
 
     function stopAnimation(shouldRender) {
+        const restoreFocus = elements.animationPanel?.contains(document.activeElement);
         state.animation = null;
         if (elements.animationPanel) elements.animationPanel.hidden = true;
         clearGuideHighlights();
@@ -1064,7 +1171,10 @@
                 row.classList.remove('active-row');
             }
         }
-        if (shouldRender && elements.mapContainer) updatePhaseUi();
+        if (shouldRender && elements.mapContainer) {
+            updatePhaseUi();
+            if (restoreFocus) elements.mapHelpButton.focus({ preventScroll: true });
+        }
     }
 
     function getMapCells() {
@@ -1256,6 +1366,11 @@
             badge.classList.toggle('is-muted', state.activeGroupId !== null && !active);
         }
 
+        for (const summary of elements.mapContainer.querySelectorAll('.group-badge-summary')) {
+            const active = summary.parentElement.querySelector('.group-badge.is-active');
+            summary.textContent = active ? `+${Number(summary.dataset.count) - 1}` : `×${summary.dataset.count}`;
+        }
+
         for (const item of elements.groupsList.querySelectorAll('.group-item[data-group-id]')) {
             const active = Number(item.dataset.groupId) === state.activeGroupId;
             item.classList.toggle('is-editing', active);
@@ -1300,7 +1415,7 @@
         literal.className = negated
             ? 'literal-symbol is-negated'
             : 'literal-symbol';
-        literal.textContent = variable;
+        literal.textContent = presentation.literalText(variable, negated);
         literal.setAttribute('aria-label', negated ? `negované ${variable}` : variable);
         return literal;
     }
@@ -1333,12 +1448,21 @@
     }
 
     function removeGroup(groupId) {
+        const oldPosition = state.groups.findIndex(group => group.id === groupId);
+        const restoreFocus = elements.groupsList.contains(document.activeElement);
         markSolverDirty();
         state.groups = state.groups.filter(group => group.id !== groupId);
         if (state.activeGroupId === groupId) state.activeGroupId = null;
         renderMap();
         renderGroups();
         updateEquation();
+        if (restoreFocus) {
+            const next = state.groups[Math.min(oldPosition, state.groups.length - 1)];
+            const target = next
+                ? elements.groupsList.querySelector(`[data-group-id="${next.id}"] .remove-group-button`)
+                : elements.createGroupButton;
+            target?.focus({ preventScroll: true });
+        }
     }
 
     function updateEquation() {
@@ -1374,14 +1498,18 @@
             appendUserGroupTerm(term, model);
             output.appendChild(term);
             accessibleTerms.push(formatAccessibleGroupTerm(model));
+            term.dataset.plainText = presentation.termText(model, state.solveMode);
         });
 
+        output.dataset.plainText = 'Y = ' + state.groups
+            .map(group => presentation.termText(getUserGroupTermModel(group), state.solveMode)).join(joiner);
         const accessibleJoiner = state.solveMode === 'minterm' ? ' plus ' : ' krát ';
         output.setAttribute('aria-label', `Y se rovná ${accessibleTerms.join(accessibleJoiner)}`);
     }
 
     function setEquationText(text) {
         elements.finalEquation.textContent = text;
+        elements.finalEquation.dataset.plainText = text;
         elements.finalEquation.setAttribute('aria-label', text);
     }
 
@@ -1619,11 +1747,12 @@
                 })[0];
 
             if (candidate) {
+                const anchor = candidate.indices.find(index => missingSet.has(index));
                 highlightIndices(candidate.indices);
                 showMessage(
                     elements.hintMessage,
                     'hint',
-                    `Začni nepokrytým indexem ${coverage.missing[0]}. Jedna vhodná maximální skupina má ${formatCellCount(candidate.cellCount)}: ${formatIndices(candidate.indices)}.`
+                    `Začni nepokrytým indexem ${anchor}. Jedna vhodná maximální skupina má ${formatCellCount(candidate.cellCount)}: ${formatIndices(candidate.indices)}.`
                 );
                 return;
             }
